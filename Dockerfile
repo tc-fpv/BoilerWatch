@@ -16,8 +16,8 @@ RUN apt-get update \
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY boiler_reader ./boiler_reader
-# Install CPU-only PyTorch before easyocr so pip doesn't pull CUDA variants.
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+# Install CPU-only PyTorch and torchvision together so versions are compatible.
+RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir .
 
 USER boiler
