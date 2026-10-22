@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 import pytest
 
-from boiler_reader.decoder import DigitBox, ROI
+from boiler_reader.decoder import DigitBox, Reading, ROI
 from boiler_reader.camera import CameraPoller
 from boiler_reader.alert_delay import AlertDelayTracker
 from boiler_reader.image_viewer import ViewerSettings, annotate_roi, make_handler, settings_from_env
@@ -26,23 +26,22 @@ def test_annotate_roi_marks_boundary_without_mutating_source() -> None:
     assert tuple(annotated[15, 15]) == (0, 0, 0)
 
 
-def test_settings_read_port_and_image_path_from_environment(monkeypatch, tmp_path) -> None:
+def test_settings_read_port_from_environment(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("WEB_PORT", "8181")
-    monkeypatch.setenv("LAST_IMAGE_PATH", str(tmp_path / "frame.jpg"))
-    monkeypatch.setenv("ROI_X", "12")
-    monkeypatch.setenv("ROI_Y", "34")
-    monkeypatch.setenv("ROI_W", "56")
-    monkeypatch.setenv("ROI_H", "78")
-    monkeypatch.setenv("DIGIT_BOXES", "1,2,30,40;50,60,70,80")
-    monkeypatch.setenv("DECIMAL_BOX", "90,100,10,11")
 
     settings = settings_from_env()
 
     assert settings.port == 8181
-    assert settings.image_path == tmp_path / "frame.jpg"
-    assert settings.roi == ROI(12, 34, 56, 78)
-    assert settings.digit_boxes == (DigitBox(1, 2, 30, 40), DigitBox(50, 60, 70, 80))
-    assert settings.decimal_box == DigitBox(90, 100, 10, 11)
+    assert settings.image_path == Path("/data/last.jpg")
+
+
+def test_settings_default_to_auto_locate(monkeypatch, tmp_path) -> None:
+    settings = settings_from_env()
+
+    assert settings.roi is None
+    assert settings.digit_boxes is None
+    assert settings.decimal_box is None
+    assert settings.auto_locate is True
 
 
 def test_settings_reject_invalid_port(monkeypatch) -> None:
@@ -52,62 +51,49 @@ def test_settings_reject_invalid_port(monkeypatch) -> None:
         settings_from_env()
 
 
-def test_poll_and_low_limit_load_from_environment(monkeypatch, tmp_path) -> None:
+def test_poll_and_low_limit_seeded_from_environment_on_first_boot(monkeypatch, tmp_path) -> None:
+    from boiler_reader.image_viewer import _load_admin_settings
     monkeypatch.setenv("POLL_SECONDS", "17")
     monkeypatch.setenv("LOW_THRESHOLD", "1.4")
     monkeypatch.setenv("ALERT_DELAY_MINUTES", "8")
-    monkeypatch.setenv("READER_SETTINGS_PATH", str(tmp_path / "reader-settings.json"))
+    settings_path = tmp_path / "reader-settings.json"
 
-    settings = settings_from_env()
+    saved = _load_admin_settings(settings_path)
 
-    assert settings.poll_seconds == 17
-    assert settings.low_threshold == 1.4
-    assert settings.alert_delay_minutes == 8
+    assert saved["poll_seconds"] == 17
+    assert saved["low_threshold"] == 1.4
+    assert saved["alert_delay_minutes"] == 8
+    assert settings_path.is_file()
 
 
 def test_lower_limit_environment_alias(monkeypatch, tmp_path) -> None:
+    from boiler_reader.image_viewer import _load_admin_settings
     monkeypatch.setenv("LOWER_LIMIT", "1.6")
     monkeypatch.delenv("LOW_THRESHOLD", raising=False)
-    monkeypatch.setenv("READER_SETTINGS_PATH", str(tmp_path / "reader-settings.json"))
 
-    settings = settings_from_env()
+    saved = _load_admin_settings(tmp_path / "reader-settings.json")
 
-    assert settings.low_threshold == 1.6
-
-
-def test_poll_and_low_limit_load_from_dotenv(monkeypatch, tmp_path) -> None:
-    (tmp_path / ".env").write_text(
-        "POLL_SECONDS=19\nLOW_THRESHOLD=1.3\nALERT_DELAY_MINUTES=7\n",
-        encoding="utf-8",
-    )
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("LAST_IMAGE_PATH", str(tmp_path / "last.jpg"))
-    monkeypatch.delenv("POLL_SECONDS", raising=False)
-    monkeypatch.delenv("LOW_THRESHOLD", raising=False)
-
-    settings = settings_from_env()
-
-    assert settings.poll_seconds == 19
-    assert settings.low_threshold == 1.3
-    assert settings.alert_delay_minutes == 7
+    assert saved["low_threshold"] == 1.6
 
 
-def test_saved_poll_and_low_limit_override_environment(monkeypatch, tmp_path) -> None:
+def test_saved_settings_override_environment(monkeypatch, tmp_path) -> None:
+    from boiler_reader.image_viewer import _load_admin_settings
     settings_path = tmp_path / "reader-settings.json"
     settings_path.write_text(
-        json.dumps({"poll_seconds": 45, "low_threshold": 1.2, "alert_delay_minutes": 11}),
+        json.dumps({"poll_seconds": 45, "low_threshold": 1.2, "alert_delay_minutes": 11,
+                    "brightness_threshold": 30, "expected_format": "auto",
+                    "rtsp_url": "", "rtsp_user": "", "rtsp_pass": "",
+                    "ha_webhook_url": "", "ha_webhook_timeout": 5}),
         encoding="utf-8",
     )
     monkeypatch.setenv("POLL_SECONDS", "17")
     monkeypatch.setenv("LOW_THRESHOLD", "1.4")
-    monkeypatch.setenv("ALERT_DELAY_MINUTES", "8")
-    monkeypatch.setenv("READER_SETTINGS_PATH", str(settings_path))
 
-    settings = settings_from_env()
+    saved = _load_admin_settings(settings_path)
 
-    assert settings.poll_seconds == 45
-    assert settings.low_threshold == 1.2
-    assert settings.alert_delay_minutes == 11
+    assert saved["poll_seconds"] == 45
+    assert saved["low_threshold"] == 1.2
+    assert saved["alert_delay_minutes"] == 11
 
 
 def test_viewer_serves_latest_image_with_roi(tmp_path) -> None:
@@ -141,15 +127,14 @@ def test_viewer_serves_latest_image_with_roi(tmp_path) -> None:
         assert "GAUGE DECODER" in page
         assert 'id="error-code"' in page
         assert "fetch('/reading.json" in page
-        assert 'id="poll-seconds"' in page
-        assert 'id="low-threshold"' in page
-        assert 'id="low-threshold" type="number" min="0" max="10" step="0.1" value="1.0"' in page
-        assert 'id="alert-delay-minutes"' in page
+        assert 'id="a-poll-seconds"' in page
+        assert 'id="a-low-threshold"' in page
+        assert 'id="a-alert-delay-minutes"' in page
         assert 'id="issue-delay"' in page
         assert 'id="capture-now"' in page
         assert 'id="send-test-webhook"' in page
         assert 'id="last-grabbed"' in page
-        assert "Save settings" in page
+        assert 'id="admin-btn"' in page
 
         favicon = urlopen(f"http://127.0.0.1:{server.server_port}/favicon.ico")
         assert favicon.status == 204
@@ -166,6 +151,7 @@ def test_viewer_serves_latest_image_with_roi(tmp_path) -> None:
         assert reading["valid"]
         assert reading["value"] == 1.3
         assert reading["display_text"] == "13"
+        assert reading["unit"] == "bar"
 
         settings_response = urlopen(f"http://127.0.0.1:{server.server_port}/settings.json")
         initial_settings = json.loads(settings_response.read())
@@ -174,25 +160,31 @@ def test_viewer_serves_latest_image_with_roi(tmp_path) -> None:
         assert initial_settings["alert_delay_minutes"] == 5
 
         save_settings = Request(
-            f"http://127.0.0.1:{server.server_port}/settings",
+            f"http://127.0.0.1:{server.server_port}/admin-settings",
             data=json.dumps({
                 "poll_seconds": 17,
                 "low_threshold": 1.4,
                 "alert_delay_minutes": 7,
+                "rtsp_url": "",
+                "rtsp_user": "",
+                "rtsp_pass": "",
+                "ha_webhook_url": "",
+                "ha_webhook_timeout": 5,
+                "brightness_threshold": 30,
+                "expected_format": "auto",
             }).encode("utf-8"),
             headers={"Content-Type": "application/json"},
             method="POST",
         )
         saved_response = urlopen(save_settings)
         saved_settings = json.loads(saved_response.read())
-        assert saved_settings == {
-            "poll_seconds": 17,
-            "low_threshold": 1.4,
-            "alert_delay_minutes": 7,
-        }
+        assert saved_settings == {"ok": True}
         assert poller.get_poll_seconds() == 17
         assert delay_tracker.delay_seconds == 420
-        assert json.loads(settings.settings_state_path.read_text(encoding="utf-8")) == saved_settings
+        saved_file = json.loads((tmp_path / "reader-settings.json").read_text(encoding="utf-8"))
+        assert saved_file["poll_seconds"] == 17
+        assert saved_file["low_threshold"] == 1.4
+        assert saved_file["alert_delay_minutes"] == 7
 
         low_reading_response = urlopen(
             f"http://127.0.0.1:{server.server_port}/reading.json"
@@ -224,7 +216,7 @@ def test_viewer_serves_latest_image_with_roi(tmp_path) -> None:
             "width": 112,
             "height": 96,
         }
-        assert json.loads(settings.roi_state_path.read_text(encoding="utf-8")) == updated_reading["roi"]
+        assert json.loads((tmp_path / "roi.json").read_text(encoding="utf-8")) == updated_reading["roi"]
     finally:
         server.shutdown()
         server.server_close()
@@ -250,6 +242,44 @@ def test_missing_camera_frame_returns_recorded_capture_error(tmp_path) -> None:
         assert error.value.code == 503
         payload = json.loads(error.value.read())
         assert payload["error"] == "RTSP camera did not return a frame"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
+def test_temperature_reading_does_not_trigger_low_pressure_issue(tmp_path, monkeypatch) -> None:
+    image_path = Path(__file__).with_name("boiler.PNG")
+    monkeypatch.setattr(
+        "boiler_reader.image_viewer.decode_frame",
+        lambda image, config: Reading(
+            value=65.3,
+            valid=True,
+            raw_pattern="1011111/1011011/1111001;dp=1",
+            confidence=1.0,
+            display_text="653",
+            unit="°C",
+        ),
+    )
+    settings = ViewerSettings(
+        image_path=image_path,
+        roi=ROI(330, 238, 110, 94),
+        digit_boxes=(DigitBox(0, 0, 22, 85), DigitBox(30, 3, 48, 76)),
+        decimal_box=DigitBox(13, 68, 9, 8),
+        low_threshold=1.5,
+    )
+    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(settings))
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        response = urlopen(f"http://127.0.0.1:{server.server_port}/reading.json")
+        reading = json.loads(response.read())
+
+        assert reading["valid"]
+        assert reading["value"] == 65.3
+        assert reading["unit"] == "°C"
+        assert reading["issue"] is None
+        assert reading["delay"]["issue"] is None
     finally:
         server.shutdown()
         server.server_close()

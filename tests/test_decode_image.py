@@ -67,3 +67,34 @@ def test_decodes_supplied_boiler_image() -> None:
     assert reading.valid
     assert reading.value == 1.3
     assert reading.display_text == "13"
+
+
+@pytest.mark.parametrize(
+    ("image_name", "value", "unit", "display_text"),
+    [
+        ("boiler-pressure.jpg", 1.2, "bar", "12"),
+        ("boiler-temperature.jpg", 52.3, "°C", "523"),
+    ],
+)
+def test_decodes_pressure_and_temperature_with_shared_display_roi(
+    image_name: str,
+    value: float,
+    unit: str,
+    display_text: str,
+) -> None:
+    config = DecoderConfig(
+        roi=ROI(255, 230, 170, 110),
+        digit_boxes=(
+            DigitBox(15, 10, 34, 69),
+            DigitBox(53, 10, 49, 76),
+            DigitBox(108, 15, 45, 76),
+        ),
+        decimal_box=DigitBox(88, 76, 12, 10),
+    )
+
+    reading = decode_image_file(Path(__file__).with_name("fixtures") / image_name, config)
+
+    assert reading.valid
+    assert reading.value == value
+    assert reading.unit == unit
+    assert reading.display_text == display_text

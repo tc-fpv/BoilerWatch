@@ -134,6 +134,30 @@ def test_decodes_decimal_format_and_requires_decimal_point() -> None:
     assert without_point.value is None
 
 
+@pytest.mark.parametrize("expected_format", ["auto", "dd.d"])
+def test_decodes_temperature_format(expected_format: str) -> None:
+    patterns = (
+        _DIGIT_PATTERNS["6"],
+        _DIGIT_PATTERNS["5"],
+        _DIGIT_PATTERNS["3"],
+    )
+    boxes = tuple(DigitBox(10 + index * 120, 10, 100, 140) for index in range(3))
+    config = DecoderConfig(
+        roi=ROI(0, 0, 360, 160),
+        digit_boxes=boxes,
+        expected_format=expected_format,
+        decimal_box=DigitBox(108, 136, 14, 12),
+        morphology_kernel_size=1,
+    )
+
+    reading = decode_frame(_render_characters(patterns, decimal=True), config)
+
+    assert reading.valid
+    assert reading.value == 65.3
+    assert reading.unit == "°C"
+    assert reading.display_text == "653"
+
+
 @pytest.mark.parametrize(
     ("text", "patterns"),
     [
@@ -156,6 +180,38 @@ def test_decodes_three_character_error_code(text: str, patterns: tuple[str, ...]
     assert reading.display_text == text
 
 
+def test_decodes_error_code_with_shared_display_geometry() -> None:
+    boxes = (
+        DigitBox(15, 10, 34, 69),
+        DigitBox(53, 10, 49, 76),
+        DigitBox(108, 15, 45, 76),
+    )
+    image = np.zeros((110, 170), dtype=np.uint8)
+    patterns = (
+        _LETTER_PATTERNS["A"],
+        _DIGIT_PATTERNS["1"],
+        _DIGIT_PATTERNS["0"],
+    )
+    for box, pattern in zip(boxes, patterns, strict=True):
+        for lit, zone in zip(pattern, SEGMENT_ZONES.values(), strict=True):
+            if lit == "1":
+                left, top, right, bottom = _segment_bounds(box, zone)
+                cv2.rectangle(image, (left, top), (right, bottom), 255, -1)
+    config = DecoderConfig(
+        roi=ROI(0, 0, 170, 110),
+        digit_boxes=boxes,
+        decimal_box=DigitBox(88, 76, 12, 10),
+        morphology_kernel_size=1,
+    )
+
+    reading = decode_frame(image, config)
+
+    assert not reading.valid
+    assert reading.value is None
+    assert reading.display_text == "A10"
+    assert reading.error_code == "A10"
+
+
 def test_unknown_glyph_does_not_form_a_pressure_reading() -> None:
     patterns = ("1001001", _DIGIT_PATTERNS["2"], _DIGIT_PATTERNS["3"])
     boxes = tuple(DigitBox(10 + index * 120, 10, 100, 140) for index in range(3))
@@ -172,7 +228,7 @@ def test_unknown_glyph_does_not_form_a_pressure_reading() -> None:
     assert reading.display_text == "?23"
 
 
-def test_three_populated_characters_are_an_error_code() -> None:
+def test_three_populated_characters_without_decimal_are_invalid() -> None:
     patterns = (_DIGIT_PATTERNS["1"], _DIGIT_PATTERNS["2"], _DIGIT_PATTERNS["3"])
     boxes = tuple(DigitBox(10 + index * 120, 10, 100, 140) for index in range(3))
     config = DecoderConfig(
@@ -182,10 +238,11 @@ def test_three_populated_characters_are_an_error_code() -> None:
         morphology_kernel_size=1,
     )
 
-    reading = decode_frame(_render_characters(patterns, decimal=True), config)
+    reading = decode_frame(_render_characters(patterns), config)
 
     assert not reading.valid
     assert reading.value is None
+    assert reading.unit is None
     assert reading.display_text == "123"
 
 

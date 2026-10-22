@@ -48,6 +48,7 @@ class Reading:
     confidence: float
     display_text: str | None = None
     error_code: str | None = None
+    unit: str | None = None
 
 
 SEGMENT_ZONES: Final[dict[str, tuple[float, float, float, float]]] = {
@@ -124,7 +125,7 @@ def _validate_config(config: DecoderConfig) -> None:
         raise ValueError("at least one digit box is required")
     if len(config.digit_boxes) > 3:
         raise ValueError("at most three character boxes are supported")
-    allowed_formats = {"auto", "d", "d.d"}
+    allowed_formats = {"auto", "d", "d.d", "dd.d"}
     if config.expected_format not in allowed_formats:
         raise ValueError("expected_format must be 'auto', 'd', or 'd.d'")
     if config.expected_format != "auto" and config.expected_format.count("d") > len(config.digit_boxes):
@@ -260,7 +261,7 @@ def decode_frame(image: np.ndarray, config: DecoderConfig) -> Reading:
     allowed_blank_layout = blank_count == 0 or (
         len(patterns) == 3 and blank_count == 1 and decoded_symbols[0] == " "
     )
-    required_digits = {"d": 1, "d.d": 2}.get(config.expected_format)
+    required_digits = {"d": 1, "d.d": 2, "dd.d": 3}.get(config.expected_format)
     numeric_format = len(digit_symbols)
     single_digit_mode = config.expected_format == "d"
     valid = numeric_symbols and allowed_blank_layout and (
@@ -268,7 +269,7 @@ def decode_frame(image: np.ndarray, config: DecoderConfig) -> Reading:
         or (
             not single_digit_mode
             and decimal_on
-            and numeric_format == 2
+            and numeric_format in {2, 3}
             and (required_digits is None or numeric_format == required_digits)
         )
     )
@@ -279,6 +280,7 @@ def decode_frame(image: np.ndarray, config: DecoderConfig) -> Reading:
             value = float(rendered_digits)
         else:
             value = float(f"{rendered_digits[:-1]}.{rendered_digits[-1]}")
+    unit = ("°C" if numeric_format == 3 else "bar") if valid else None
 
     return Reading(
         value=value,
@@ -290,4 +292,5 @@ def decode_frame(image: np.ndarray, config: DecoderConfig) -> Reading:
         ),
         display_text=display_text,
         error_code=error_code,
+        unit=unit,
     )

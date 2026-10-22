@@ -4,25 +4,12 @@ services:
     pull_policy: always
     restart: unless-stopped
     environment:
-      RTSP_URL: ${RTSP_URL:?Set RTSP_URL in the Portainer stack environment}
+      WEB_PORT: ${WEB_PORT:-8080}
+      RTSP_URL: ${RTSP_URL:-}
       RTSP_USER: ${RTSP_USER:-}
       RTSP_PASS: ${RTSP_PASS:-}
-      POLL_SECONDS: ${POLL_SECONDS:-30}
-      LOW_THRESHOLD: ${LOW_THRESHOLD:-${LOWER_LIMIT:-1.0}}
-      ALERT_DELAY_MINUTES: ${ALERT_DELAY_MINUTES:-5}
       HA_WEBHOOK_URL: ${HA_WEBHOOK_URL:-}
       HA_WEBHOOK_TIMEOUT: ${HA_WEBHOOK_TIMEOUT:-5}
-      WEB_PORT: ${WEB_PORT:-8080}
-      LAST_IMAGE_PATH: /data/last.jpg
-      ROI_X: ${ROI_X:-330}
-      ROI_Y: ${ROI_Y:-238}
-      ROI_W: ${ROI_W:-110}
-      ROI_H: ${ROI_H:-94}
-      DIGIT_BOXES: ${DIGIT_BOXES:-0,0,22,85;30,3,48,76}
-      DECIMAL_BOX: ${DECIMAL_BOX:-13,68,9,8}
-      EXPECTED_FORMAT: ${EXPECTED_FORMAT:-auto}
-      ROI_STATE_PATH: /data/roi.json
-      READER_SETTINGS_PATH: /data/reader-settings.json
     ports:
       - "${WEB_PORT:-8080}:${WEB_PORT:-8080}"
     volumes:

@@ -4,7 +4,7 @@ Camera-based digital boiler pressure gauge reader for Reolink RTSP cameras, with
 
 ## Decoder Stage
 
-The decoder crops the configured ROI, applies grayscale CLAHE, Otsu thresholding (using a fallback for uniform images), and light morphological cleanup. Digit boxes are coordinates relative to the cropped ROI. Within each box, normalized sample zones read segments in `a` through `g` order. With `expected_format: auto`, a lit decimal point and exactly two populated numeric positions identify a pressure reading (`n.n`); a blank leading slot is allowed on a three-position display. Three populated positions are treated as an error code, even if all three glyphs look numeric. Common seven-segment letters and dashes are recognized; unsupported patterns remain undecoded.
+The decoder crops the configured ROI, applies grayscale CLAHE, Otsu thresholding (using a fallback for uniform images), and light morphological cleanup. Digit boxes are coordinates relative to the cropped ROI. Within each box, normalized sample zones read segments in `a` through `g` order. With `expected_format: auto`, a lit decimal point and two populated numeric positions identify a pressure reading (`n.n`); three identify a temperature (`nn.n`). A blank leading slot is allowed on a three-position display. Three populated positions without a lit decimal point are not accepted as numeric readings. Common seven-segment letters and dashes are recognized; unsupported patterns remain undecoded.
 
 Recognized manual error codes include A10, A11, A20, A21, A30, A40, A41, A42, A58, A59, A60, A70, A71, A80, A81, A90, A91, ECS, SES, and FIL. The three-character display `FIL` is reported as the manual code `FILL`; the raw display text remains available separately.
 
@@ -17,7 +17,7 @@ python -m pip install -e ".[test]"
 pytest
 ```
 
-The tests render digits and invalid patterns in memory, exercise a synthetic JPEG, and decode the supplied `tests/boiler.PNG` frame. To test another camera image, use the decoder CLI and supply the full-image ROI plus one box per character (coordinates inside boxes are relative to the ROI):
+The tests render digits and invalid patterns in memory, exercise a synthetic JPEG, and decode the supplied `tests/boiler.PNG` frame plus raw pressure and temperature camera frames in `tests/fixtures/`. To test another camera image, use the decoder CLI and supply the full-image ROI plus one box per character (coordinates inside boxes are relative to the ROI):
 
 ```powershell
 py -3.12 -m boiler_reader.decode_image .\tests\fixtures\gauge.jpg `
@@ -28,7 +28,7 @@ py -3.12 -m boiler_reader.decode_image .\tests\fixtures\gauge.jpg `
     --decimal-box 108,136,14,12
 ```
 
-The command prints JSON containing `value`, `valid`, `raw_pattern`, `confidence`, and `display_text`. Adjust the ROI, character boxes, and decimal-point box for your frame. Add real camera images to `tests/fixtures/` for repeatable local calibration and regression checks; no real camera image is included yet.
+The command prints JSON containing `value`, `valid`, `unit`, `raw_pattern`, `confidence`, and `display_text`. Use `--format dd.d` to require a temperature reading. Adjust the ROI, character boxes, and decimal-point box for your frame; `nn.n` requires three `--digit-box` arguments. Add real camera images to `tests/fixtures/` for repeatable local calibration and regression checks; no real camera image is included yet.
 
 ## Latest Frame Viewer
 
@@ -39,16 +39,16 @@ Run the latest-frame viewer with:
 ```powershell
 $env:LAST_IMAGE_PATH = "C:\path\to\latest.jpg"
 $env:WEB_PORT = "8080"
-$env:ROI_X = "330"
-$env:ROI_Y = "238"
-$env:ROI_W = "110"
-$env:ROI_H = "94"
-$env:DIGIT_BOXES = "0,0,22,85;30,3,48,76"
-$env:DECIMAL_BOX = "13,68,9,8"
+$env:ROI_X = "255"
+$env:ROI_Y = "230"
+$env:ROI_W = "170"
+$env:ROI_H = "110"
+$env:DIGIT_BOXES = "15,10,34,69;53,10,49,76;108,15,45,76"
+$env:DECIMAL_BOX = "88,76,12,10"
 py -3.12 -m boiler_reader.image_viewer
 ```
 
-Open `http://localhost:8080/`. The page refreshes every two seconds and shows the latest image with the ROI outlined on the left and the decoder's pressure, display text, segment pattern, and confidence on the right. Drag the ROI border to move it; drag the lower-right handle to resize it. Releasing the pointer rescans the current image immediately, updates the sidebar, and saves the ROI. Use **Grab new frame** to request an immediate camera capture; **Last frame** shows the timestamp of the latest grab. **Send test HA message** asks for confirmation, then sends a simulated `ECS` error through the configured webhook and may trigger the HA mobile notification automation. The saved ROI is loaded on restart from `ROI_STATE_PATH`, defaulting to a `roi.json` sidecar beside `LAST_IMAGE_PATH` (for example, `/data/roi.json`).
+Open `http://localhost:8080/`. The page refreshes every two seconds and shows the latest image with the ROI outlined on the left and the decoded pressure or temperature, display text, segment pattern, and confidence on the right. Configure three `DIGIT_BOXES` entries to read a `nn.n` temperature display. Drag the ROI border to move it; drag the lower-right handle to resize it. Releasing the pointer rescans the current image immediately, updates the sidebar, and saves the ROI. Use **Grab new frame** to request an immediate camera capture; **Last frame** shows the timestamp of the latest grab. **Send test HA message** asks for confirmation, then sends a simulated `ECS` error through the configured webhook and may trigger the HA mobile notification automation. The saved ROI is loaded on restart from `ROI_STATE_PATH`, defaulting to a `roi.json` sidecar beside `LAST_IMAGE_PATH` (for example, `/data/roi.json`).
 
 When `RTSP_URL` is configured, the server grabs a frame before it starts serving the UI, then grabs another every `POLL_SECONDS`. A failed grab removes the previous frame, writes `camera-status.json`, and is shown as a camera error; old frames are not presented as current. Saving Poll seconds in the sidebar updates the running poller and persists across restarts.
 
@@ -104,7 +104,7 @@ The repository includes `Dockerfile` and `docker-compose.yml` for Portainer. A G
 2. In GitHub, open the published `boiler-reader` package under the account's Packages. Packages are private by default unless visibility is changed. Make it public for anonymous Portainer pulls, or configure Portainer with a registry credential that has `read:packages` access.
 3. In Portainer, choose **Stacks** > **Add stack** > **Git Repository**.
 4. Enter `https://github.com/tc-fpv/boiler-reader`, select branch `master`, and set the Compose path to `docker-compose.yml`.
-5. Add the variables from `.env.example` in Portainer's stack environment section. Set `RTSP_URL`, and keep `RTSP_USER`, `RTSP_PASS`, and `HA_WEBHOOK_URL` private there. Do not commit `.env` or the webhook ID.
+5. Add the variables from `.env.example` in Portainer's stack environment section. Set `RTSP_URL`, and keep `RTSP_USER`, `RTSP_PASS`, and `HA_WEBHOOK_URL` private there. The geometry variables (`ROI_X`, `ROI_Y` etc.) are no longer needed — the display is located automatically. Do not commit `.env` or the webhook ID.
 6. Deploy the stack. Portainer pulls `ghcr.io/tc-fpv/boiler-reader:latest`; the viewer is exposed on `WEB_PORT` (default `8080`). Set `IMAGE_TAG` to a `sha-...` tag to pin a specific build.
 
 For local Docker Compose, copy `.env.example` to `.env`, fill in the private values, then run `docker compose up -d`. The app accepts `LOWER_LIMIT` as a compatibility alias, but `LOW_THRESHOLD` is the canonical setting name. The GHCR image is available after the GitHub Actions publish workflow completes.
