@@ -2,7 +2,8 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    WEB_PORT=8080
+    WEB_PORT=8080 \
+    EASYOCR_MODULE_PATH=/data/.EasyOCR
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates ffmpeg libglib2.0-0 libgomp1 libgl1 \

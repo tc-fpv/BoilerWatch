@@ -10,6 +10,7 @@ services:
       RTSP_PASS: ${RTSP_PASS:-}
       HA_WEBHOOK_URL: ${HA_WEBHOOK_URL:-}
       HA_WEBHOOK_TIMEOUT: ${HA_WEBHOOK_TIMEOUT:-5}
+      EASYOCR_MODULE_PATH: /data/.EasyOCR
     ports:
       - "${WEB_PORT:-8080}:${WEB_PORT:-8080}"
     volumes:
