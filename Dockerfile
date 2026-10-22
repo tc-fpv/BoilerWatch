@@ -15,6 +15,8 @@ RUN apt-get update \
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY boiler_reader ./boiler_reader
+# Install CPU-only PyTorch before easyocr so pip doesn't pull CUDA variants.
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir .
 # Pre-download EasyOCR models so first container start doesn't fetch them.
 RUN python -c "import easyocr; easyocr.Reader(['en'], gpu=False, verbose=False)"
