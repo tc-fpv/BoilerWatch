@@ -1,6 +1,6 @@
 # Boiler Reader
 
-Camera-based digital boiler pressure gauge reader. The first project stage provides a seven-segment decoder and synthetic unit tests; camera polling, MQTT, alerting, and container deployment are not wired yet.
+Camera-based digital boiler pressure gauge reader for Reolink RTSP cameras, with seven-segment decoding, Home Assistant webhook notifications, and an interactive calibration viewer.
 
 ## Decoder Stage
 
@@ -95,3 +95,14 @@ py -3.12 -m boiler_reader.send_test_webhook --send
 ```
 
 The sidebar also shows editable poll seconds and low-pressure limit fields. These initialize from `POLL_SECONDS` and `LOW_THRESHOLD` in `.env` (defaults: 30 seconds and 1.0 bar). Select **Save settings** to write them to `READER_SETTINGS_PATH`, defaulting to a `reader-settings.json` sidecar beside `LAST_IMAGE_PATH`; saved JSON values take priority over `.env` on restart. This lets you remove the two values from `.env` after saving. Both sidecar files are ignored by Git. `WEB_PORT` is configurable. ROI defaults match the captured 640×480 Reolink frame and can be overridden with `ROI_X`, `ROI_Y`, `ROI_W`, and `ROI_H`. Character boxes use `DIGIT_BOXES` as semicolon-separated `x,y,width,height` values relative to the ROI; they remain fixed within the resized crop. `DECIMAL_BOX` uses the same coordinate format. Defaults match the captured Reolink frame. The default image path is `/data/last.jpg` for container deployment. Ensure that path and its parent directory are writable by the viewer.
+
+## Portainer Deployment
+
+The repository root contains `Dockerfile` and `docker-compose.yml` for a Git-based Portainer stack. The image uses Python 3.12-slim, runs as a non-root user, and stores the latest frame, camera status, ROI, and saved settings in the persistent `boiler_reader_data` volume mounted at `/data`.
+
+1. In Portainer, choose **Stacks** > **Add stack** > **Git Repository**.
+2. Enter `https://github.com/tc-fpv/boiler-reader`, select branch `master`, and set the Compose path to `docker-compose.yml`.
+3. Add the variables from `.env.example` in Portainer's stack environment section. Set `RTSP_URL`, and keep `RTSP_USER`, `RTSP_PASS`, and `HA_WEBHOOK_URL` private there. Do not commit `.env` or the webhook ID.
+4. Deploy the stack. Portainer builds the image from the repository's Dockerfile; the viewer is exposed on `WEB_PORT` (default `8080`).
+
+For local Docker Compose, copy `.env.example` to `.env`, fill in the private values, then run `docker compose up -d --build`. The app accepts `LOWER_LIMIT` as a compatibility alias, but `LOW_THRESHOLD` is the canonical setting name.

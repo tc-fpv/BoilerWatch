@@ -74,7 +74,9 @@ def settings_from_env() -> ViewerSettings:
         os.getenv("READER_SETTINGS_PATH", str(image_path.with_name("reader-settings.json")))
     )
     poll_seconds = int(os.getenv("POLL_SECONDS", "30"))
-    low_threshold = float(os.getenv("LOW_THRESHOLD", "1.0"))
+    low_threshold = float(
+        os.getenv("LOW_THRESHOLD", os.getenv("LOWER_LIMIT", "1.0"))
+    )
     alert_delay_minutes = int(os.getenv("ALERT_DELAY_MINUTES", "5"))
     if roi_state_path.is_file():
         saved_roi = json.loads(roi_state_path.read_text(encoding="utf-8"))

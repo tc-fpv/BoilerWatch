@@ -65,6 +65,16 @@ def test_poll_and_low_limit_load_from_environment(monkeypatch, tmp_path) -> None
     assert settings.alert_delay_minutes == 8
 
 
+def test_lower_limit_environment_alias(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("LOWER_LIMIT", "1.6")
+    monkeypatch.delenv("LOW_THRESHOLD", raising=False)
+    monkeypatch.setenv("READER_SETTINGS_PATH", str(tmp_path / "reader-settings.json"))
+
+    settings = settings_from_env()
+
+    assert settings.low_threshold == 1.6
+
+
 def test_poll_and_low_limit_load_from_dotenv(monkeypatch, tmp_path) -> None:
     (tmp_path / ".env").write_text(
         "POLL_SECONDS=19\nLOW_THRESHOLD=1.3\nALERT_DELAY_MINUTES=7\n",
