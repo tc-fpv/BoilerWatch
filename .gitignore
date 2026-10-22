@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+roi.json
+reader-settings.json
+camera-status.json
+data/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*.egg-info/
+.venv/

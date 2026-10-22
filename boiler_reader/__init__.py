@@ -1,0 +1,1 @@
+"""Camera-based boiler pressure gauge reader."""

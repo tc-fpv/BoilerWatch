@@ -1,0 +1,1 @@
+Place representative camera frames in this folder for decoder calibration and regression tests. No real gauge frame was provided, so the initial unit tests generate synthetic seven-segment images in memory.
