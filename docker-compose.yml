@@ -1,9 +1,7 @@
 services:
   boiler-reader:
-    image: boiler-reader:local
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/tc-fpv/boiler-reader:${IMAGE_TAG:-latest}
+    pull_policy: always
     restart: unless-stopped
     environment:
       RTSP_URL: ${RTSP_URL:?Set RTSP_URL in the Portainer stack environment}

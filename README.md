@@ -98,11 +98,13 @@ The sidebar also shows editable poll seconds and low-pressure limit fields. Thes
 
 ## Portainer Deployment
 
-The repository root contains `Dockerfile` and `docker-compose.yml` for a Git-based Portainer stack. The image uses Python 3.12-slim, runs as a non-root user, and stores the latest frame, camera status, ROI, and saved settings in the persistent `boiler_reader_data` volume mounted at `/data`.
+The repository includes `Dockerfile` and `docker-compose.yml` for Portainer. A GitHub Actions workflow publishes multi-architecture images (`linux/amd64` and `linux/arm64`) to `ghcr.io/tc-fpv/boiler-reader` on each push to `master`, tagged `latest` and with the commit SHA. It uses the workflow's scoped `GITHUB_TOKEN`; no registry PAT is stored in the repository. The image uses Python 3.12-slim, runs as a non-root user, and stores the latest frame, camera status, ROI, and saved settings in the persistent `boiler_reader_data` volume mounted at `/data`.
 
-1. In Portainer, choose **Stacks** > **Add stack** > **Git Repository**.
-2. Enter `https://github.com/tc-fpv/boiler-reader`, select branch `master`, and set the Compose path to `docker-compose.yml`.
-3. Add the variables from `.env.example` in Portainer's stack environment section. Set `RTSP_URL`, and keep `RTSP_USER`, `RTSP_PASS`, and `HA_WEBHOOK_URL` private there. Do not commit `.env` or the webhook ID.
-4. Deploy the stack. Portainer builds the image from the repository's Dockerfile; the viewer is exposed on `WEB_PORT` (default `8080`).
+1. Push to `master` and wait for **Actions** > **Publish container** to complete.
+2. In GitHub, open the published `boiler-reader` package under the account's Packages. Packages are private by default unless visibility is changed. Make it public for anonymous Portainer pulls, or configure Portainer with a registry credential that has `read:packages` access.
+3. In Portainer, choose **Stacks** > **Add stack** > **Git Repository**.
+4. Enter `https://github.com/tc-fpv/boiler-reader`, select branch `master`, and set the Compose path to `docker-compose.yml`.
+5. Add the variables from `.env.example` in Portainer's stack environment section. Set `RTSP_URL`, and keep `RTSP_USER`, `RTSP_PASS`, and `HA_WEBHOOK_URL` private there. Do not commit `.env` or the webhook ID.
+6. Deploy the stack. Portainer pulls `ghcr.io/tc-fpv/boiler-reader:latest`; the viewer is exposed on `WEB_PORT` (default `8080`). Set `IMAGE_TAG` to a `sha-...` tag to pin a specific build.
 
-For local Docker Compose, copy `.env.example` to `.env`, fill in the private values, then run `docker compose up -d --build`. The app accepts `LOWER_LIMIT` as a compatibility alias, but `LOW_THRESHOLD` is the canonical setting name.
+For local Docker Compose, copy `.env.example` to `.env`, fill in the private values, then run `docker compose up -d`. The app accepts `LOWER_LIMIT` as a compatibility alias, but `LOW_THRESHOLD` is the canonical setting name. The GHCR image is available after the GitHub Actions publish workflow completes.
