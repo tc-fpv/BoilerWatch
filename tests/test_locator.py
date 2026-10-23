@@ -33,7 +33,7 @@ def test_locates_pressure_display_and_decodes_correctly() -> None:
     assert result.roi.x + result.roi.width <= w
     assert result.roi.y + result.roi.height <= h
 
-    reading = read_display(crop_display(image, result))
+    reading, _ = read_display(crop_display(image, result))
     assert reading.valid
     assert reading.value == pytest.approx(1.2, abs=0.1)
     assert reading.unit == "bar"
@@ -48,7 +48,7 @@ def test_locates_temperature_display_and_decodes_correctly() -> None:
     assert result is not None
     assert result.confidence > 0.5
 
-    reading = read_display(crop_display(image, result))
+    reading, _ = read_display(crop_display(image, result))
     assert reading.valid
     assert reading.value == pytest.approx(52.3, abs=0.1)
     assert reading.unit == "°C"
@@ -91,7 +91,7 @@ def test_locate_display_accepts_custom_threshold() -> None:
     assert result_default is not None
     assert result_custom is not None
     for result in (result_default, result_custom):
-        reading = read_display(crop_display(image, result))
+        reading, _ = read_display(crop_display(image, result))
         assert reading.valid
 
 
@@ -104,7 +104,7 @@ def test_locates_moved_and_skewed_pressure_display() -> None:
     assert result is not None
     assert result.confidence > 0.5
 
-    reading = read_display(crop_display(image, result))
+    reading, _ = read_display(crop_display(image, result))
     assert reading.valid
     assert reading.value == pytest.approx(1.2, abs=0.1)
     assert reading.unit == "bar"

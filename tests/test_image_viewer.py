@@ -267,6 +267,7 @@ def test_temperature_reading_does_not_trigger_low_pressure_issue(tmp_path, monke
         digit_boxes=(DigitBox(0, 0, 22, 85), DigitBox(30, 3, 48, 76)),
         decimal_box=DigitBox(13, 68, 9, 8),
         low_threshold=1.5,
+        high_threshold=2.0,
     )
     server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(settings))
     thread = Thread(target=server.serve_forever, daemon=True)

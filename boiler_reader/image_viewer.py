@@ -6,6 +6,7 @@ import json
 import math
 import os
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Event, Lock, RLock, Thread
@@ -36,6 +37,7 @@ class ViewerSettings:
     roi_state_path: Path | None = None
     poll_seconds: int = 30
     low_threshold: float = 1.0
+    high_threshold: float = 1.5
     settings_state_path: Path | None = None
     alert_delay_minutes: int = 5
     auto_locate: bool = True
@@ -51,6 +53,7 @@ class ViewerSettings:
 _SETTINGS_KEYS = (
     "poll_seconds",
     "low_threshold",
+    "high_threshold",
     "alert_delay_minutes",
     "brightness_threshold",
     "expected_format",
@@ -64,6 +67,7 @@ _SETTINGS_KEYS = (
 _SETTINGS_DEFAULTS: dict[str, object] = {
     "poll_seconds": 30,
     "low_threshold": 1.0,
+    "high_threshold": 1.5,
     "alert_delay_minutes": 5,
     "brightness_threshold": 30,
     "expected_format": "auto",
@@ -103,6 +107,7 @@ def _load_admin_settings(settings_state_path: Path) -> dict[str, object]:
         "ha_webhook_timeout": int(os.getenv("HA_WEBHOOK_TIMEOUT", "5")),
         "poll_seconds": int(os.getenv("POLL_SECONDS", "30")),
         "low_threshold": float(os.getenv("LOW_THRESHOLD", os.getenv("LOWER_LIMIT", "1.0"))),
+        "high_threshold": float(os.getenv("HIGH_THRESHOLD", "1.5")),
         "alert_delay_minutes": int(os.getenv("ALERT_DELAY_MINUTES", "5")),
         "brightness_threshold": int(os.getenv("BRIGHTNESS_THRESHOLD", "30")),
         "expected_format": os.getenv("EXPECTED_FORMAT", "auto"),
@@ -126,8 +131,9 @@ def settings_from_env() -> ViewerSettings:
 
     poll_seconds = int(saved["poll_seconds"])
     low_threshold = float(saved["low_threshold"])
+    high_threshold = float(saved["high_threshold"])
     alert_delay_minutes = int(saved["alert_delay_minutes"])
-    _validate_reader_settings(poll_seconds, low_threshold, alert_delay_minutes)
+    _validate_reader_settings(poll_seconds, low_threshold, high_threshold, alert_delay_minutes)
 
     roi: ROI | None = None
     if roi_state_path.is_file():
@@ -145,6 +151,7 @@ def settings_from_env() -> ViewerSettings:
         roi_state_path=roi_state_path,
         poll_seconds=poll_seconds,
         low_threshold=low_threshold,
+        high_threshold=high_threshold,
         settings_state_path=settings_state_path,
         alert_delay_minutes=alert_delay_minutes,
         brightness_threshold=int(saved["brightness_threshold"]),
@@ -159,12 +166,17 @@ def settings_from_env() -> ViewerSettings:
 def _validate_reader_settings(
     poll_seconds: int,
     low_threshold: float,
+    high_threshold: float,
     alert_delay_minutes: int,
 ) -> None:
     if not 1 <= poll_seconds <= 3600:
         raise ValueError("poll_seconds must be between 1 and 3600")
     if not math.isfinite(low_threshold) or not 0 <= low_threshold <= 10:
         raise ValueError("low_threshold must be between 0 and 10 bar")
+    if not math.isfinite(high_threshold) or not 0 <= high_threshold <= 10:
+        raise ValueError("high_threshold must be between 0 and 10 bar")
+    if high_threshold <= low_threshold:
+        raise ValueError("high_threshold must be greater than low_threshold")
     if not 1 <= alert_delay_minutes <= 1440:
         raise ValueError("alert_delay_minutes must be between 1 and 1440")
 
@@ -173,6 +185,7 @@ def _validate_admin_settings(s: dict[str, object]) -> None:
     _validate_reader_settings(
         int(s["poll_seconds"]),
         float(s["low_threshold"]),
+        float(s["high_threshold"]),
         int(s["alert_delay_minutes"]),
     )
     if not 0 <= int(s["brightness_threshold"]) <= 255:
@@ -313,6 +326,7 @@ button.action:disabled{{opacity:.6;cursor:wait}}
 <fieldset style="border:1px solid #35433a;padding:12px 14px;margin:0"><legend style="color:#829187;font-size:11px;padding:0 6px">ALERTS</legend>
 <div style="display:grid;gap:8px">
 <label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">Low limit (bar)<input id="a-low-threshold" type="number" min="0" max="10" step="0.1" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
+<label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">High limit (bar)<input id="a-high-threshold" type="number" min="0" max="10" step="0.1" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
 <label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">Alert delay (min)<input id="a-alert-delay-minutes" type="number" min="1" max="1440" step="1" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
 </div></fieldset>
 <fieldset style="border:1px solid #35433a;padding:12px 14px;margin:0"><legend style="color:#829187;font-size:11px;padding:0 6px">DETECTION</legend>
@@ -493,6 +507,7 @@ document.getElementById('admin-btn').addEventListener('click',async()=>{{
         document.getElementById('a-ha-webhook-url').value=s.ha_webhook_url||'';
         document.getElementById('a-ha-webhook-timeout').value=s.ha_webhook_timeout||5;
         document.getElementById('a-low-threshold').value=s.low_threshold||1.0;
+        document.getElementById('a-high-threshold').value=s.high_threshold||1.5;
         document.getElementById('a-alert-delay-minutes').value=s.alert_delay_minutes||5;
         document.getElementById('a-brightness-threshold').value=s.brightness_threshold||30;
         document.getElementById('a-expected-format').value=s.expected_format||'auto';
@@ -517,6 +532,7 @@ document.getElementById('admin-form').addEventListener('submit',async event=>{{
             ha_webhook_url:document.getElementById('a-ha-webhook-url').value.trim(),
             ha_webhook_timeout:Number(document.getElementById('a-ha-webhook-timeout').value),
             low_threshold:Number(document.getElementById('a-low-threshold').value),
+            high_threshold:Number(document.getElementById('a-high-threshold').value),
             alert_delay_minutes:Number(document.getElementById('a-alert-delay-minutes').value),
             brightness_threshold:Number(document.getElementById('a-brightness-threshold').value),
             expected_format:document.getElementById('a-expected-format').value,
@@ -560,6 +576,7 @@ def make_handler(
     current_settings = reader_settings if reader_settings is not None else {
         "poll_seconds": settings.poll_seconds,
         "low_threshold": settings.low_threshold,
+        "high_threshold": settings.high_threshold,
         "alert_delay_minutes": settings.alert_delay_minutes,
     }
     settings_lock = settings_lock or RLock()
@@ -578,12 +595,15 @@ def make_handler(
         reading_fields = asdict(reading)
         with settings_lock:
             low_threshold = float(current_settings["low_threshold"])
+            high_threshold = float(current_settings["high_threshold"])
         if not reading_fields["valid"]:
             issue = "error"
         elif reading_fields["unit"] == "°C":
             issue = None
         elif float(reading_fields["value"]) < low_threshold:
             issue = "low_pressure"
+        elif float(reading_fields["value"]) > high_threshold:
+            issue = "error"
         else:
             issue = None
         delay_status = delay_tracker.update(issue)
@@ -643,7 +663,7 @@ def make_handler(
                     cached_reading[0] = result
                 return result
             effective_roi = located.roi
-            reading = read_display(crop_display(image, located))
+            reading, _ = read_display(crop_display(image, located))
         else:
             effective_roi = roi
             reading = decode_frame(image, _decoder_config(settings, effective_roi))
@@ -915,6 +935,7 @@ def make_handler(
                     raise ValueError("POLL_SECONDS must be a whole number")
                 poll_seconds = int(poll_seconds_raw)
                 low_threshold = float(payload["low_threshold"])
+                high_threshold = float(payload["high_threshold"])
                 alert_delay_raw = float(payload["alert_delay_minutes"])
                 if not math.isfinite(alert_delay_raw) or not alert_delay_raw.is_integer():
                     raise ValueError("ALERT_DELAY_MINUTES must be a whole number")
@@ -922,11 +943,13 @@ def make_handler(
                 _validate_reader_settings(
                     poll_seconds,
                     low_threshold,
+                    high_threshold,
                     alert_delay_minutes,
                 )
                 partial = {
                     "poll_seconds": poll_seconds,
                     "low_threshold": low_threshold,
+                    "high_threshold": high_threshold,
                     "alert_delay_minutes": alert_delay_minutes,
                 }
                 with settings_lock:
@@ -959,6 +982,7 @@ def make_handler(
                     "ha_webhook_url": str(payload.get("ha_webhook_url", "")).strip(),
                     "ha_webhook_timeout": int(payload.get("ha_webhook_timeout", 5)),
                     "low_threshold": float(payload.get("low_threshold", 1.0)),
+                    "high_threshold": float(payload.get("high_threshold", 1.5)),
                     "alert_delay_minutes": int(float(payload.get("alert_delay_minutes", 5))),
                     "brightness_threshold": int(payload.get("brightness_threshold", 30)),
                     "expected_format": str(payload.get("expected_format", "auto")),
@@ -1040,6 +1064,7 @@ def serve(settings: ViewerSettings | None = None) -> None:
     reader_settings: dict[str, object] = {
         "poll_seconds": settings.poll_seconds,
         "low_threshold": settings.low_threshold,
+        "high_threshold": settings.high_threshold,
         "alert_delay_minutes": settings.alert_delay_minutes,
         "brightness_threshold": settings.brightness_threshold,
         "expected_format": settings.expected_format,
@@ -1063,6 +1088,14 @@ def serve(settings: ViewerSettings | None = None) -> None:
             webhook_delivery_lock,
         )
 
+    def save_error_frame(frame: np.ndarray, label: str, processed: np.ndarray | None = None) -> None:
+        ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        folder = settings.image_path.parent / "screenshots"
+        folder.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(folder / f"{ts}_{label}.jpg"), frame)
+        if processed is not None:
+            cv2.imwrite(str(folder / f"{ts}_{label}_ocr.jpg"), processed)
+
     def observe_frame(frame: np.ndarray | None, error: str | None) -> None:
         if frame is None or error is not None:
             send_for_issue(
@@ -1078,6 +1111,7 @@ def serve(settings: ViewerSettings | None = None) -> None:
                 shared_cached_reading[0] = None
             return
         # Decode the new frame and cache the result.
+        ocr_processed: np.ndarray | None = None
         try:
             roi = active_roi[0]
             if roi is None or (settings.auto_locate and settings.digit_boxes is None):
@@ -1085,6 +1119,7 @@ def serve(settings: ViewerSettings | None = None) -> None:
                     bt = int(reader_settings["brightness_threshold"])
                 located = locate_display(frame, bt)
                 if located is None:
+                    save_error_frame(frame, "ERROR")
                     send_for_issue(
                         "error",
                         {
@@ -1097,12 +1132,13 @@ def serve(settings: ViewerSettings | None = None) -> None:
                     with shared_cached_reading_lock:
                         shared_cached_reading[0] = None
                     return
-                reading = read_display(crop_display(frame, located))
+                reading, ocr_processed = read_display(crop_display(frame, located))
                 effective_roi = located.roi
             else:
                 reading = decode_frame(frame, _decoder_config(settings, roi))
                 effective_roi = roi
         except ValueError:
+            save_error_frame(frame, "ERROR")
             send_for_issue(
                 "error",
                 {
@@ -1117,12 +1153,18 @@ def serve(settings: ViewerSettings | None = None) -> None:
             return
         with settings_lock:
             low_threshold = float(reader_settings["low_threshold"])
+            high_threshold = float(reader_settings["high_threshold"])
         if not reading.valid:
             issue = "error"
+            save_error_frame(frame, "ERROR", ocr_processed)
         elif reading.unit == "°C":
             issue = None
         elif reading.value is not None and reading.value < low_threshold:
             issue = "low_pressure"
+            save_error_frame(frame, "LOW", ocr_processed)
+        elif reading.value is not None and reading.value > high_threshold:
+            issue = "error"
+            save_error_frame(frame, "HIGH", ocr_processed)
         else:
             issue = None
         send_for_issue(

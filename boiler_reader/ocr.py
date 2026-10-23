@@ -51,17 +51,17 @@ def _preprocess_crop(crop: np.ndarray) -> np.ndarray:
     return cv2.bitwise_not(large)
 
 
-def _read_crop(crop: np.ndarray) -> tuple[str, float]:
-    """Run EasyOCR on a preprocessed crop, return (raw_text, confidence)."""
+def _read_crop(crop: np.ndarray) -> tuple[str, float, np.ndarray]:
+    """Run EasyOCR on a preprocessed crop, return (raw_text, confidence, processed_image)."""
     processed = _preprocess_crop(crop)
     results = _reader().readtext(processed, allowlist=_ALLOWLIST, detail=1)
     if not results:
-        return "", 0.0
+        return "", 0.0, processed
     # Sort left-to-right and join — handles multi-detection splits.
     results.sort(key=lambda r: r[0][0][0])
     text = "".join(r[1] for r in results).strip()
     confidence = float(np.mean([r[2] for r in results]))
-    return text, confidence
+    return text, confidence, processed
 
 
 def _interpret(raw: str, confidence: float) -> Reading:
@@ -124,13 +124,13 @@ def _interpret(raw: str, confidence: float) -> Reading:
     )
 
 
-def read_display(crop: np.ndarray) -> Reading:
-    """Read a located display crop and return a Reading.
+def read_display(crop: np.ndarray) -> tuple[Reading, np.ndarray]:
+    """Read a located display crop and return (Reading, preprocessed_image).
 
     crop should be a grayscale or BGR image of just the digit row,
     as returned by the locator.
     """
-    raw, confidence = _read_crop(crop)
+    raw, confidence, processed = _read_crop(crop)
     reading = _interpret(raw, confidence)
     print(
         f"ocr: raw={repr(raw)} → "
@@ -138,4 +138,4 @@ def read_display(crop: np.ndarray) -> Reading:
         f"{reading.value} {reading.unit or ''} "
         f"(conf={confidence:.2f})"
     )
-    return reading
+    return reading, processed
