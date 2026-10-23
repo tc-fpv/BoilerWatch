@@ -292,6 +292,7 @@ body{{display:flex;background:#101514}}
 main{{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;background:#080b0a;padding:16px}}
 #stage{{position:relative;display:inline-block;max-width:100%;max-height:100%}}
 #frame{{display:block;max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain}}
+@media(max-width:700px){{html,body{{height:auto;overflow:auto}}body{{flex-direction:column}}main{{min-height:0;padding:10px}}aside{{flex:0 0 auto;width:100%;padding:14px 18px;gap:10px;border-left:0;border-top:1px solid #35433a}}.reading{{min-height:48px}}#value{{font-size:38px}}dl{{grid-template-columns:1fr 1fr}}dt{{margin-top:3px}}time{{margin-top:4px}}}}
 #roi-box{{position:absolute;border:2px solid #ff7a35;cursor:move;touch-action:none;min-width:8px;min-height:8px}}
 #resize-handle{{position:absolute;right:-7px;bottom:-7px;width:14px;height:14px;padding:0;border:2px solid #101514;background:#ff7a35;cursor:nwse-resize;touch-action:none}}
 aside{{flex:0 0 310px;padding:28px 24px;background:#17201c;border-left:1px solid #35433a;display:flex;flex-direction:column;gap:22px}}
@@ -316,7 +317,6 @@ button.action{{width:100%;padding:8px 10px;border:1px solid #526258;background:#
 button.action:disabled{{opacity:.6;cursor:wait}}
 #last-grabbed{{margin-top:0;color:#9bad9f}}
 #admin-overlay:not([hidden]){{display:flex}}
-@media(max-width:700px){{body{{flex-direction:column}}main{{min-height:0}}aside{{flex:0 0 auto;width:100%;padding:14px 18px;gap:10px;border-left:0;border-top:1px solid #35433a}}.reading{{min-height:48px}}#value{{font-size:38px}}dl{{grid-template-columns:1fr 1fr}}dt{{margin-top:3px}}time{{margin-top:4px}}}}
 </style></head>
 <body>
 <div id="admin-overlay" hidden style="position:fixed;inset:0;background:rgba(0,0,0,.7);align-items:center;justify-content:center;z-index:100">
