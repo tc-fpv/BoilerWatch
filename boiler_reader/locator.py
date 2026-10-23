@@ -27,7 +27,8 @@ _OSD_BOTTOM_FRACTION = 0.20
 DEFAULT_BRIGHTNESS_THRESHOLD = 30
 
 # Minimum number of bright pixels for a contour to be considered real signal.
-_MIN_BRIGHT_AREA = 80
+# Set high enough to exclude isolated camera artefacts (IR LEDs, reflections).
+_MIN_BRIGHT_AREA = 500
 
 # The digit row is the topmost tall region; indicator icons sit below it.
 # Regions whose height is less than this fraction of the tallest region are
@@ -264,6 +265,21 @@ def crop_display(image: np.ndarray, located: LocatedDisplay) -> np.ndarray:
     """Return the image crop of the located display ROI."""
     roi = located.roi
     return image[roi.y:roi.y + roi.height, roi.x:roi.x + roi.width]
+
+
+def crop_digits(image: np.ndarray, located: LocatedDisplay) -> np.ndarray:
+    """Return a tight crop of just the digit row, excluding sub-display icons.
+
+    Uses the digit_boxes y-extent (which is relative to the ROI) to cut out
+    only the main character row, discarding indicators below it.
+    """
+    roi = located.roi
+    boxes = located.digit_boxes
+    if not boxes:
+        return crop_display(image, located)
+    y_min = min(b.y for b in boxes)
+    y_max = max(b.y + b.height for b in boxes)
+    return image[roi.y + y_min:roi.y + y_max, roi.x:roi.x + roi.width]
 
 
 def located_decoder_config(

@@ -47,6 +47,8 @@ class ViewerSettings:
     rtsp_pass: str = ""
     ha_webhook_url: str = ""
     ha_webhook_timeout: int = 5
+    ollama_url: str = ""
+    ollama_model: str = "minicpm-v4.6:latest"
 
 
 # Keys written to / read from reader-settings.json.
@@ -62,6 +64,8 @@ _SETTINGS_KEYS = (
     "rtsp_pass",
     "ha_webhook_url",
     "ha_webhook_timeout",
+    "ollama_url",
+    "ollama_model",
 )
 
 _SETTINGS_DEFAULTS: dict[str, object] = {
@@ -76,6 +80,8 @@ _SETTINGS_DEFAULTS: dict[str, object] = {
     "rtsp_pass": "",
     "ha_webhook_url": "",
     "ha_webhook_timeout": 5,
+    "ollama_url": "",
+    "ollama_model": "minicpm-v4.6:latest",
 }
 
 
@@ -111,6 +117,8 @@ def _load_admin_settings(settings_state_path: Path) -> dict[str, object]:
         "alert_delay_minutes": int(os.getenv("ALERT_DELAY_MINUTES", "5")),
         "brightness_threshold": int(os.getenv("BRIGHTNESS_THRESHOLD", "30")),
         "expected_format": os.getenv("EXPECTED_FORMAT", "auto"),
+        "ollama_url": os.getenv("OLLAMA_URL", "").strip(),
+        "ollama_model": os.getenv("OLLAMA_MODEL", "minicpm-v4.6:latest").strip(),
     }
     _persist_json(settings_state_path, seeded)
     return seeded
@@ -160,6 +168,8 @@ def settings_from_env() -> ViewerSettings:
         rtsp_pass=str(saved["rtsp_pass"]),
         ha_webhook_url=str(saved["ha_webhook_url"]),
         ha_webhook_timeout=int(saved["ha_webhook_timeout"]),
+        ollama_url=str(saved.get("ollama_url", "")),
+        ollama_model=str(saved.get("ollama_model", "minicpm-v4.6:latest")),
     )
 
 
@@ -194,6 +204,9 @@ def _validate_admin_settings(s: dict[str, object]) -> None:
         raise ValueError("expected_format must be auto, d, d.d, or dd.d")
     if not 1 <= int(s["ha_webhook_timeout"]) <= 60:
         raise ValueError("ha_webhook_timeout must be between 1 and 60")
+    ollama_url = str(s.get("ollama_url", "")).strip()
+    if ollama_url and not (ollama_url.startswith("http://") or ollama_url.startswith("https://")):
+        raise ValueError("ollama_url must start with http:// or https://")
 
 
 def _persist_json(path: Path, payload: dict[str, object]) -> None:
@@ -334,6 +347,12 @@ button.action:disabled{{opacity:.6;cursor:wait}}
 <label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">Brightness threshold<input id="a-brightness-threshold" type="number" min="0" max="255" step="1" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
 <label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">Expected format<select id="a-expected-format" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"><option value="auto">auto</option><option value="d.d">d.d (pressure)</option><option value="dd.d">dd.d (temperature)</option></select></label>
 </div></fieldset>
+<fieldset style="border:1px solid #35433a;padding:12px 14px;margin:0"><legend style="color:#829187;font-size:11px;padding:0 6px">LLM VALIDATOR</legend>
+<div style="display:grid;gap:8px">
+<p style="margin:0;font-size:11px;color:#829187">Used to cross-check suspicious OCR readings. Leave URL blank to disable.</p>
+<label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">Ollama URL<input id="a-ollama-url" type="text" placeholder="http://192.168.0.26:11434" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
+<label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">Model<input id="a-ollama-model" type="text" placeholder="minicpm-v4.6:latest" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
+</div></fieldset>
 <button id="admin-save" type="submit" style="justify-self:start;padding:8px 16px;border:1px solid #829987;background:#26372e;color:#edf4ee;font:inherit;cursor:pointer">Save</button>
 </form></div></div>
 <main><div id="stage"><img id="frame" src="/last.jpg" alt="Latest camera frame with ROI"><div id="roi-box" title="Drag to move ROI"><button id="resize-handle" type="button" title="Drag to resize ROI" aria-label="Resize ROI"></button></div></div></main>
@@ -341,7 +360,7 @@ button.action:disabled{{opacity:.6;cursor:wait}}
 <div id="status">WAITING</div><dl><dt>Display</dt><dd id="display">--</dd>
 <dt>Error code</dt><dd id="error-code">--</dd>
 <dt>Issue timer</dt><dd id="issue-delay">No active issue</dd>
-<dt>Segment pattern</dt><dd id="pattern">--</dd><dt>Confidence</dt><dd id="confidence">--</dd></dl>
+<dt>Segment pattern</dt><dd id="pattern">--</dd></dl>
 <div class="actions"><button class="action" id="capture-now" type="button">Grab new frame</button>
 <button class="action" id="send-test-webhook" type="button">Send test HA message</button>
 <button class="action" id="admin-btn" type="button">Settings</button>
@@ -382,7 +401,6 @@ function showReading(reading){{
         ?(delay.issue==='low_pressure'?'Low pressure: ':'Error: ')+(delay.eligible?'ready':delay.remaining_seconds+'s remaining')
         :'No active issue';
     document.getElementById('pattern').textContent=reading.raw_pattern||'--';
-    document.getElementById('confidence').textContent=Math.round(reading.confidence*100)+'%';
     const status=document.getElementById('status');
     status.textContent=valid?(unit==='°C'?'VALID TEMPERATURE':'VALID PRESSURE'):'INVALID / ERROR';
     status.classList.toggle('invalid',!valid);
@@ -412,7 +430,6 @@ async function refresh(){{
         document.getElementById('error-code').textContent='--';
         document.getElementById('issue-delay').textContent=error.message;
         document.getElementById('pattern').textContent='--';
-        document.getElementById('confidence').textContent='--';
         status.textContent='NO IMAGE';
         status.classList.add('invalid');
         document.getElementById('updated').textContent='Waiting for latest frame';
@@ -511,6 +528,8 @@ document.getElementById('admin-btn').addEventListener('click',async()=>{{
         document.getElementById('a-alert-delay-minutes').value=s.alert_delay_minutes||5;
         document.getElementById('a-brightness-threshold').value=s.brightness_threshold||30;
         document.getElementById('a-expected-format').value=s.expected_format||'auto';
+        document.getElementById('a-ollama-url').value=s.ollama_url||'';
+        document.getElementById('a-ollama-model').value=s.ollama_model||'minicpm-v4.6:latest';
     }}catch(e){{
         document.getElementById('updated').textContent='Could not load admin settings: '+e.message;
     }}
@@ -536,6 +555,8 @@ document.getElementById('admin-form').addEventListener('submit',async event=>{{
             alert_delay_minutes:Number(document.getElementById('a-alert-delay-minutes').value),
             brightness_threshold:Number(document.getElementById('a-brightness-threshold').value),
             expected_format:document.getElementById('a-expected-format').value,
+            ollama_url:document.getElementById('a-ollama-url').value.trim(),
+            ollama_model:document.getElementById('a-ollama-model').value.trim(),
         }};
         const response=await fetch('/admin-settings',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(payload)}});
         const result=await response.json();
@@ -663,7 +684,10 @@ def make_handler(
                     cached_reading[0] = result
                 return result
             effective_roi = located.roi
-            reading, _ = read_display(crop_display(image, located))
+            with settings_lock:
+                _url = str(current_settings.get("ollama_url", ""))
+                _model = str(current_settings.get("ollama_model", "minicpm-v4.6:latest"))
+            reading, _ = read_display(crop_display(image, located), _url, _model)
         else:
             effective_roi = roi
             reading = decode_frame(image, _decoder_config(settings, effective_roi))
@@ -986,6 +1010,8 @@ def make_handler(
                     "alert_delay_minutes": int(float(payload.get("alert_delay_minutes", 5))),
                     "brightness_threshold": int(payload.get("brightness_threshold", 30)),
                     "expected_format": str(payload.get("expected_format", "auto")),
+                    "ollama_url": str(payload.get("ollama_url", "")).strip(),
+                    "ollama_model": str(payload.get("ollama_model", "minicpm-v4.6:latest")).strip(),
                 }
                 _validate_admin_settings(saved)
                 with settings_lock:
@@ -1028,7 +1054,7 @@ def make_handler(
             self.wfile.write(body)
 
         def log_message(self, format: str, *args: object) -> None:
-            print(f"image-viewer: {format % args}")
+            pass
 
     return ImageHandler
 
@@ -1073,6 +1099,8 @@ def serve(settings: ViewerSettings | None = None) -> None:
         "rtsp_pass": settings.rtsp_pass,
         "ha_webhook_url": settings.ha_webhook_url,
         "ha_webhook_timeout": settings.ha_webhook_timeout,
+        "ollama_url": settings.ollama_url,
+        "ollama_model": settings.ollama_model,
     }
     settings_lock = RLock()
 
@@ -1112,8 +1140,13 @@ def serve(settings: ViewerSettings | None = None) -> None:
             with shared_cached_reading_lock:
                 shared_cached_reading[0] = None
             return
+        with settings_lock:
+            _ollama_url = str(reader_settings.get("ollama_url", "")).strip()
+        if not _ollama_url:
+            return
         # Decode the new frame and cache the result.
         ocr_processed: np.ndarray | None = None
+        display_crop: np.ndarray | None = None
         try:
             roi = active_roi[0]
             if roi is None or (settings.auto_locate and settings.digit_boxes is None):
@@ -1134,7 +1167,11 @@ def serve(settings: ViewerSettings | None = None) -> None:
                     with shared_cached_reading_lock:
                         shared_cached_reading[0] = None
                     return
-                reading, ocr_processed = read_display(crop_display(frame, located))
+                display_crop = crop_display(frame, located)
+                with settings_lock:
+                    _url = str(reader_settings.get("ollama_url", ""))
+                    _model = str(reader_settings.get("ollama_model", "minicpm-v4.6:latest"))
+                reading, ocr_processed = read_display(display_crop, _url, _model)
                 effective_roi = located.roi
             else:
                 reading = decode_frame(frame, _decoder_config(settings, roi))
@@ -1169,18 +1206,16 @@ def serve(settings: ViewerSettings | None = None) -> None:
             save_error_frame(frame, "HIGH", ocr_processed)
         else:
             issue = None
-        # Detect suspicious valid readings: low confidence or implausible jump in value.
+        # Detect suspicious valid readings: implausible jump in value.
         if reading.valid and reading.unit == "bar" and reading.value is not None:
-            confidence_too_low = reading.confidence < 0.5
             last_value, last_unit = last_reading_state
             value_jump_too_large = (
                 last_value is not None
                 and last_unit == "bar"
                 and abs(reading.value - last_value) > 1.5
             )
-            if confidence_too_low or value_jump_too_large:
-                reason = "LOW_CONF" if confidence_too_low else "JUMP"
-                save_error_frame(frame, reason, ocr_processed)
+            if value_jump_too_large:
+                save_error_frame(frame, "JUMP", ocr_processed)
         # Update last reading for next frame's delta comparison.
         if reading.valid:
             last_reading_state[0] = reading.value

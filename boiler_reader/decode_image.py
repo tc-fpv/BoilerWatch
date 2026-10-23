@@ -129,7 +129,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         try:
             reading, _ = read_display(crop_display(image, located))
-        except Exception as error:
+        except RuntimeError as error:
             parser.error(str(error))
         print(json.dumps(asdict(reading), indent=2))
         return 0
