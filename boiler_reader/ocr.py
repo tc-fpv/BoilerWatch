@@ -133,7 +133,7 @@ def read_display(crop: np.ndarray) -> tuple[Reading, np.ndarray]:
     raw, confidence, processed = _read_crop(crop)
     reading = _interpret(raw, confidence)
     print(
-        f"ocr: raw={repr(raw)} → "
+        f"ocr: raw={repr(raw)} -> "
         f"{'valid' if reading.valid else 'invalid'} "
         f"{reading.value} {reading.unit or ''} "
         f"(conf={confidence:.2f})"

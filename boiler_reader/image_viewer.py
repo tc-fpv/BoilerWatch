@@ -1096,6 +1096,8 @@ def serve(settings: ViewerSettings | None = None) -> None:
         if processed is not None:
             cv2.imwrite(str(folder / f"{ts}_{label}_ocr.jpg"), processed)
 
+    last_reading_state: list[tuple[float | None, str | None]] = [None, None]
+
     def observe_frame(frame: np.ndarray | None, error: str | None) -> None:
         if frame is None or error is not None:
             send_for_issue(
@@ -1167,6 +1169,22 @@ def serve(settings: ViewerSettings | None = None) -> None:
             save_error_frame(frame, "HIGH", ocr_processed)
         else:
             issue = None
+        # Detect suspicious valid readings: low confidence or implausible jump in value.
+        if reading.valid and reading.unit == "bar" and reading.value is not None:
+            confidence_too_low = reading.confidence < 0.5
+            last_value, last_unit = last_reading_state
+            value_jump_too_large = (
+                last_value is not None
+                and last_unit == "bar"
+                and abs(reading.value - last_value) > 1.5
+            )
+            if confidence_too_low or value_jump_too_large:
+                reason = "LOW_CONF" if confidence_too_low else "JUMP"
+                save_error_frame(frame, reason, ocr_processed)
+        # Update last reading for next frame's delta comparison.
+        if reading.valid:
+            last_reading_state[0] = reading.value
+            last_reading_state[1] = reading.unit
         send_for_issue(
             issue,
             {
