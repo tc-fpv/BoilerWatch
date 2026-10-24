@@ -34,12 +34,19 @@ _PROMPT = (
 
 
 def _preprocess_crop_for_llm(crop: np.ndarray) -> np.ndarray:
-    """Grayscale + 4x upscale, bright segments on dark background."""
+    """Grayscale + 4x upscale, bright segments on dark background.
+
+    A single random-value pixel is written to the bottom-right corner so each
+    call produces unique image bytes, preventing Ollama's KV cache from
+    replaying a stale inference for an identical-looking image.
+    """
     if crop.ndim == 3:
         gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
     else:
         gray = crop
-    return cv2.resize(gray, None, fx=_UPSCALE, fy=_UPSCALE, interpolation=cv2.INTER_CUBIC)
+    upscaled = cv2.resize(gray, None, fx=_UPSCALE, fy=_UPSCALE, interpolation=cv2.INTER_CUBIC)
+    upscaled[-1, -1] = random.randint(0, 255)
+    return upscaled
 
 
 def _ask_ollama(crop: np.ndarray, ollama_url: str, model: str, timeout: int = 60) -> tuple[str, float]:

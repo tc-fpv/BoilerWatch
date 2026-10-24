@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -283,7 +284,7 @@ def _page(refresh_seconds: int) -> bytes:
     html = f"""<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:,">
-<title>Boiler Reader</title>
+<title>BoilerWatch</title>
 <style>
 :root{{color-scheme:dark;font-family:Consolas,'Courier New',monospace;background:#101514;color:#e8efeb}}
 *{{box-sizing:border-box}}
@@ -319,6 +320,23 @@ button.action:disabled{{opacity:.6;cursor:wait}}
 #admin-overlay:not([hidden]){{display:flex}}
 </style></head>
 <body>
+<div id="capture-overlay" hidden style="position:fixed;inset:0;background:rgba(0,0,0,.7);align-items:center;justify-content:center;z-index:100">
+<div style="background:#17201c;border:1px solid #35433a;padding:28px 24px;width:min(360px,95vw);display:flex;flex-direction:column;gap:16px">
+<div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0;color:#9bad9f;font-size:13px;font-weight:600;letter-spacing:1px">CAPTURE IMAGE</h2><button id="capture-close" type="button" style="background:none;border:none;color:#829187;font-size:18px;cursor:pointer;padding:0 4px">&#x2715;</button></div>
+<p style="margin:0;font-size:11px;color:#829187">Save the current raw image with the correct reading as the filename.</p>
+<form id="capture-form" style="display:grid;gap:14px">
+<div style="display:grid;gap:6px;width:50%"><label for="capture-value" style="color:#9bad9f;font-size:12px">CORRECT READING</label><input id="capture-value" type="text" placeholder="e.g. 1.2 or ECS" autocomplete="off" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></div>
+<fieldset style="border:1px solid #35433a;padding:10px 14px;margin:0;width:50%"><legend style="color:#829187;font-size:11px;padding:0 6px">UNITS</legend>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+<label style="display:flex;align-items:center;gap:6px;color:#9bad9f;font-size:12px;cursor:pointer"><input type="radio" name="capture-unit" value="bar" checked style="accent-color:#ff7a35"> bar</label>
+<label style="display:flex;align-items:center;gap:6px;color:#9bad9f;font-size:12px;cursor:pointer"><input type="radio" name="capture-unit" value="degC" style="accent-color:#ff7a35"> °C</label>
+<label style="display:flex;align-items:center;gap:6px;color:#9bad9f;font-size:12px;cursor:pointer"><input type="radio" name="capture-unit" value="error" style="accent-color:#ff7a35"> error</label>
+</div></fieldset>
+<div style="display:flex;gap:10px">
+<button id="capture-save" type="submit" style="padding:8px 16px;border:1px solid #829987;background:#26372e;color:#edf4ee;font:inherit;cursor:pointer">Save</button>
+<button type="button" id="capture-cancel" style="padding:8px 12px;border:1px solid #526258;background:#202c25;color:#9bad9f;font:inherit;cursor:pointer">Cancel</button>
+</div>
+</form></div></div>
 <div id="admin-overlay" hidden style="position:fixed;inset:0;background:rgba(0,0,0,.7);align-items:center;justify-content:center;z-index:100">
 <div style="background:#17201c;border:1px solid #35433a;padding:28px 24px;width:min(480px,95vw);max-height:90vh;overflow-y:auto;display:flex;flex-direction:column;gap:16px">
 <div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0;color:#9bad9f;font-size:13px;font-weight:600;letter-spacing:1px">SETTINGS</h2><button id="admin-close" type="button" style="background:none;border:none;color:#829187;font-size:18px;cursor:pointer;padding:0 4px">&#x2715;</button></div>
@@ -356,12 +374,13 @@ button.action:disabled{{opacity:.6;cursor:wait}}
 <button id="admin-save" type="submit" style="justify-self:start;padding:8px 16px;border:1px solid #829987;background:#26372e;color:#edf4ee;font:inherit;cursor:pointer">Save</button>
 </form></div></div>
 <main><div id="stage"><img id="frame" src="/last.jpg" alt="Latest camera frame with ROI"><div id="roi-box" title="Drag to move ROI"><button id="resize-handle" type="button" title="Drag to resize ROI" aria-label="Resize ROI"></button></div></div></main>
-<aside><h1>GAUGE DECODER</h1><div class="reading"><span id="value">--</span><span id="unit">bar</span></div>
+<aside><h1>BOILERWATCH</h1><div class="reading"><span id="value">--</span><span id="unit">bar</span></div>
 <div id="status">WAITING</div><dl><dt>Display</dt><dd id="display">--</dd>
 <dt>Error code</dt><dd id="error-code">--</dd>
 <dt>Issue timer</dt><dd id="issue-delay">No active issue</dd>
 <dt>Segment pattern</dt><dd id="pattern">--</dd></dl>
 <div class="actions"><button class="action" id="capture-now" type="button">Grab new frame</button>
+<button class="action" id="capture-image-btn" type="button" style="border-color:#625226;background:#2c2520">Capture Misread</button>
 <button class="action" id="send-test-webhook" type="button">Send test HA message</button>
 <button class="action" id="admin-btn" type="button">Settings</button>
 <time id="last-grabbed">Last frame: unknown</time></div>
@@ -566,6 +585,30 @@ document.getElementById('admin-form').addEventListener('submit',async event=>{{
     }}catch(error){{
         document.getElementById('updated').textContent=error.message;
     }}finally{{button.disabled=false;button.textContent='Save';}}
+}});
+function openCaptureModal(){{const o=document.getElementById('capture-overlay');o.hidden=false;o.style.display='flex';document.getElementById('capture-value').focus();}}
+function closeCaptureModal(){{const o=document.getElementById('capture-overlay');o.hidden=true;o.style.display='none';document.getElementById('capture-form').reset();}}
+document.getElementById('capture-image-btn').addEventListener('click',openCaptureModal);
+document.getElementById('capture-close').addEventListener('click',closeCaptureModal);
+document.getElementById('capture-cancel').addEventListener('click',closeCaptureModal);
+document.addEventListener('click',e=>{{const o=document.getElementById('capture-overlay');if(o&&e.target===o)closeCaptureModal();}});
+document.addEventListener('keydown',e=>{{const o=document.getElementById('capture-overlay');if(e.key==='Escape'&&o&&!o.hidden)closeCaptureModal();}});
+document.getElementById('capture-form').addEventListener('submit',async event=>{{
+    event.preventDefault();
+    const btn=document.getElementById('capture-save');
+    const value=document.getElementById('capture-value').value.trim();
+    const unit=document.querySelector('input[name="capture-unit"]:checked').value;
+    if(!value){{document.getElementById('updated').textContent='Enter a reading value';return;}}
+    btn.disabled=true;btn.textContent='Saving...';
+    try{{
+        const response=await fetch('/save-mismatch',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{value,unit}})}});
+        const result=await response.json();
+        if(!response.ok)throw new Error(result.error||'Save failed');
+        closeCaptureModal();
+        document.getElementById('updated').textContent='Saved: '+result.saved;
+    }}catch(error){{
+        document.getElementById('updated').textContent=error.message;
+    }}finally{{btn.disabled=false;btn.textContent='Save';}}
 }});
 refresh();
 </script>
@@ -854,13 +897,11 @@ def make_handler(
                 if camera_poller is None:
                     self._send_json(503, {"error": "RTSP_URL is not configured"})
                     return
+                # Clear stale cache before capture so the fresh frame is decoded.
+                with cached_reading_lock:
+                    cached_reading[0] = None
                 captured = camera_poller.capture_once()
                 camera = _camera_status(settings.image_path)
-                if captured:
-                    cached = get_cached_reading()
-                    if cached is not None:
-                        self._send_json(200, {**cached, "captured": True, "camera": camera})
-                        return
                 self._send_json(
                     200 if captured else 502,
                     {
@@ -890,6 +931,34 @@ def make_handler(
                     200 if delivered else 502,
                     {"delivered": delivered, "error": None if delivered else "Webhook delivery failed"},
                 )
+                return
+            if request_path == "/save-mismatch":
+                try:
+                    content_length = int(self.headers.get("Content-Length", "0"))
+                    if not 0 < content_length <= 512:
+                        raise ValueError("Request body must be between 1 and 512 bytes")
+                    payload = json.loads(self.rfile.read(content_length))
+                    value = str(payload.get("value", "")).strip()
+                    unit = str(payload.get("unit", "")).strip()
+                    if not value:
+                        raise ValueError("value is required")
+                    if unit not in ("bar", "degC", "error"):
+                        raise ValueError("unit must be bar, degC, or error")
+                    safe_value = re.sub(r"[^0-9A-Za-z._-]", "", value)[:20]
+                    image = cv2.imread(str(settings.image_path), cv2.IMREAD_UNCHANGED)
+                    if image is None:
+                        self._send_json(503, {"error": "No current image to save"})
+                        return
+                    ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+                    folder = settings.image_path.parent / "screenshots"
+                    folder.mkdir(parents=True, exist_ok=True)
+                    filename = f"{ts}_MANUAL_{safe_value}_{unit}.jpg"
+                    cv2.imwrite(str(folder / filename), image)
+                    self._send_json(200, {"saved": filename})
+                except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+                    self._send_json(400, {"error": str(error)})
+                except OSError as error:
+                    self._send_json(500, {"error": f"Could not save image: {error}"})
                 return
             if request_path == "/settings":
                 self._update_reader_settings()
@@ -1296,7 +1365,7 @@ def serve(settings: ViewerSettings | None = None) -> None:
             on_admin_save=start_camera,
         ),
     )
-    print(f"image-viewer: serving on port {settings.port}; image={settings.image_path}")
+    print(f"boilerwatch: serving on port {settings.port}; image={settings.image_path}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
