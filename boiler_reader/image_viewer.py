@@ -949,10 +949,18 @@ def make_handler(
                     if image is None:
                         self._send_json(503, {"error": "No current image to save"})
                         return
+                    # Build LLM reading segment from cache.
+                    cached = get_cached_reading()
+                    if cached is not None:
+                        llm_display = re.sub(r"[^0-9A-Za-z._-]", "", str(cached.get("display_text") or "unknown"))[:20]
+                        llm_unit = re.sub(r"[^0-9A-Za-z._-]", "", str(cached.get("unit") or "unknown"))[:10]
+                        llm_seg = f"{llm_display}_{llm_unit}"
+                    else:
+                        llm_seg = "unknown"
                     ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
                     folder = settings.image_path.parent / "screenshots"
                     folder.mkdir(parents=True, exist_ok=True)
-                    filename = f"{ts}_MANUAL_{safe_value}_{unit}.jpg"
+                    filename = f"{ts}_LLM_{llm_seg}_MANUAL_{safe_value}_{unit}.jpg"
                     cv2.imwrite(str(folder / filename), image)
                     self._send_json(200, {"saved": filename})
                 except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
