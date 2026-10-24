@@ -15,7 +15,7 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY pyproject.toml README.md ./
-COPY boilerwatch_reader ./boilerwatch_reader
+COPY boiler_reader ./boiler_reader
 # Install CPU-only PyTorch and torchvision together so versions are compatible.
 RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir .
@@ -26,4 +26,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD python -c "import os; from urllib.request import urlopen; urlopen('http://127.0.0.1:'+os.getenv('WEB_PORT','8080')+'/', timeout=3)" || exit 1
 
-CMD ["python", "-m", "boilerwatch_reader.image_viewer"]
+CMD ["python", "-m", "boiler_reader.image_viewer"]
