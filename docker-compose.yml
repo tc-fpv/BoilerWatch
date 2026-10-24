@@ -1,6 +1,6 @@
 services:
-  boiler-reader:
-    image: ghcr.io/tc-fpv/boiler-reader:${IMAGE_TAG:-latest}
+  boilerwatch:
+    image: ghcr.io/tc-fpv/boilerwatch:${IMAGE_TAG:-latest}
     pull_policy: always
     restart: unless-stopped
     environment:
@@ -9,7 +9,7 @@ services:
     ports:
       - "${WEB_PORT:-8080}:${WEB_PORT:-8080}"
     volumes:
-      - boiler_reader_data:/data
+      - boilerwatch_data:/data
 
 volumes:
-  boiler_reader_data:
+  boilerwatch_data:
