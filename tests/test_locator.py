@@ -54,6 +54,21 @@ def test_locates_temperature_display_and_decodes_correctly() -> None:
     assert reading.unit == "°C"
 
 
+def test_roi_excludes_unit_indicator_lights_below_digits() -> None:
+    # Captured misread frame: the lit unit indicators (43 px and 41 px tall)
+    # sit just below 71 px tall digits and used to be merged into the ROI.
+    image = cv2.imread(
+        str(_fixture("boiler-pressure-with-indicators.jpg")), cv2.IMREAD_UNCHANGED
+    )
+    assert image is not None
+
+    result = locate_display(image)
+
+    assert result is not None
+    assert result.roi.height < 100
+    assert result.roi.y + result.roi.height <= 330
+
+
 def test_returns_none_for_completely_black_frame() -> None:
     image = np.zeros((480, 640, 3), dtype=np.uint8)
 

@@ -88,11 +88,17 @@ def _find_digit_row_contours(
         return []
 
     # Keep only the tallest cluster; drop indicator icons below the digit row.
-    max_h = max(cv2.boundingRect(c)[3] for c in candidates)
-    digit_row = [
-        c for c in candidates
-        if cv2.boundingRect(c)[3] >= max_h * _MIN_HEIGHT_FRACTION
-    ]
+    # Height alone is not enough: unit indicators can be nearly as tall as a
+    # digit, so also require the blob's vertical centre to sit inside the
+    # tallest blob's vertical extent.
+    tallest = max(candidates, key=lambda c: cv2.boundingRect(c)[3])
+    _, row_y, _, max_h = cv2.boundingRect(tallest)
+    digit_row = []
+    for c in candidates:
+        _, y, _, h = cv2.boundingRect(c)
+        centre_y = y + h / 2
+        if h >= max_h * _MIN_HEIGHT_FRACTION and row_y <= centre_y <= row_y + max_h:
+            digit_row.append(c)
     return digit_row
 
 

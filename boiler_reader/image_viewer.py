@@ -962,6 +962,13 @@ def make_handler(
                     folder.mkdir(parents=True, exist_ok=True)
                     filename = f"{ts}_LLM_{llm_seg}_MANUAL_{safe_value}_{unit}.jpg"
                     cv2.imwrite(str(folder / filename), image)
+                    # Also keep the crop the LLM was shown, to diagnose misreads.
+                    located = locate_display(image, settings.brightness_threshold)
+                    if located is not None:
+                        cv2.imwrite(
+                            str(folder / filename.replace(".jpg", "_ocr.jpg")),
+                            crop_display(image, located),
+                        )
                     self._send_json(200, {"saved": filename})
                 except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
                     self._send_json(400, {"error": str(error)})
