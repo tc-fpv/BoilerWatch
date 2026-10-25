@@ -24,6 +24,7 @@ from boiler_reader.ocr import read_display
 from boiler_reader.camera import CameraPoller
 from boiler_reader.webhook import HomeAssistantWebhookNotifier, create_from_env
 from boiler_reader.alert_delay import AlertDelayTracker, DelayStatus
+from boiler_reader.activity import ANALYZING, GRABBING, IDLE, ActivityTracker
 
 
 @dataclass(frozen=True)
@@ -296,6 +297,13 @@ main{{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;
 @media(max-width:700px){{html,body{{height:auto;overflow:auto}}body{{flex-direction:column}}main{{min-height:0;padding:10px}}aside{{flex:0 0 auto;width:100%;padding:14px 18px;gap:10px;border-left:0;border-top:1px solid #35433a}}.reading{{min-height:48px}}#value{{font-size:38px}}dl{{grid-template-columns:1fr 1fr}}dt{{margin-top:3px}}time{{margin-top:4px}}}}
 #roi-box{{position:absolute;border:2px solid #ff7a35;cursor:move;touch-action:none;min-width:8px;min-height:8px}}
 #resize-handle{{position:absolute;right:-7px;bottom:-7px;width:14px;height:14px;padding:0;border:2px solid #101514;background:#ff7a35;cursor:nwse-resize;touch-action:none}}
+#roi-box.ok{{border-color:#2ecc71}}#roi-box.ok #resize-handle{{background:#2ecc71}}
+#roi-box.bad{{border-color:#ff3b3b}}#roi-box.bad #resize-handle{{background:#ff3b3b}}
+#roi-box.analyzing{{animation:roi-flash .6s steps(1) infinite}}
+@keyframes roi-flash{{0%{{border-color:#ff9a1f;box-shadow:0 0 8px #ff9a1f}}50%{{border-color:transparent;box-shadow:none}}}}
+#grab-dot{{position:absolute;left:10px;bottom:10px;width:14px;height:14px;background:#ff2d2d;pointer-events:none;visibility:hidden}}
+#grab-dot.on{{visibility:visible;animation:grab-flash .5s steps(1) infinite}}
+@keyframes grab-flash{{0%{{opacity:1}}50%{{opacity:0}}}}
 aside{{flex:0 0 310px;padding:28px 24px;background:#17201c;border-left:1px solid #35433a;display:flex;flex-direction:column;gap:22px}}
 h1{{margin:0;color:#9bad9f;font-size:12px;font-weight:600;letter-spacing:1px}}
 .reading{{display:flex;align-items:baseline;gap:10px;min-height:66px}}
@@ -373,7 +381,7 @@ button.action:disabled{{opacity:.6;cursor:wait}}
 </div></fieldset>
 <button id="admin-save" type="submit" style="justify-self:start;padding:8px 16px;border:1px solid #829987;background:#26372e;color:#edf4ee;font:inherit;cursor:pointer">Save</button>
 </form></div></div>
-<main><div id="stage"><img id="frame" src="/last.jpg" alt="Latest camera frame with ROI"><div id="roi-box" title="Drag to move ROI"><button id="resize-handle" type="button" title="Drag to resize ROI" aria-label="Resize ROI"></button></div></div></main>
+<main><div id="stage"><img id="frame" src="/last.jpg" alt="Latest camera frame with ROI"><div id="roi-box" title="Drag to move ROI"><button id="resize-handle" type="button" title="Drag to resize ROI" aria-label="Resize ROI"></button></div><div id="grab-dot" title="Grabbing frame"></div></div></main>
 <aside><h1>BOILERWATCH</h1><div class="reading"><span id="value">--</span><span id="unit">bar</span></div>
 <div id="status">WAITING</div><dl><dt>Display</dt><dd id="display">--</dd>
 <dt>Error code</dt><dd id="error-code">--</dd>
@@ -394,6 +402,24 @@ let imageSize=null;
 let currentRoi=null;
 let drag=null;
 let saving=false;
+let phase='idle';
+let roiResult=null;
+function applyRoiState(){{
+    roiBox.classList.toggle('analyzing',phase==='analyzing');
+    roiBox.classList.toggle('ok',phase!=='analyzing'&&roiResult==='ok');
+    roiBox.classList.toggle('bad',phase!=='analyzing'&&roiResult==='bad');
+    document.getElementById('grab-dot').classList.toggle('on',phase==='grabbing');
+}}
+async function pollActivity(){{
+    try{{
+        const response=await fetch('/activity.json?t='+Date.now(),{{cache:'no-store'}});
+        const activity=await response.json();
+        const previous=phase;
+        phase=activity.phase;
+        applyRoiState();
+        if(previous==='analyzing'&&phase!=='analyzing')refresh();
+    }}catch(error){{}}
+}}
 function drawRoi(){{
     if(!currentRoi||!imageSize||!frame.naturalWidth)return;
     const imageRect=frame.getBoundingClientRect();
@@ -409,6 +435,8 @@ function showReading(reading){{
     imageSize=reading.image_size||imageSize;
     currentRoi=reading.roi||currentRoi;
     const valid=reading.valid;
+    roiResult=(valid&&!reading.issue)?'ok':'bad';
+    applyRoiState();
     const unit=reading.unit||'bar';
     document.getElementById('value').textContent=valid?Number(reading.value).toFixed(1):'--';
     document.getElementById('unit').textContent=unit;
@@ -441,6 +469,7 @@ async function refresh(){{
         const response=await fetch('/reading.json?t='+Date.now(),{{cache:'no-store'}});
         const reading=await response.json();
         if(!response.ok)throw new Error(reading.error||'Reading unavailable');
+        if(reading.busy)return;
         showReading(reading);
     }}catch(error){{
         document.getElementById('value').textContent='--';
@@ -529,6 +558,7 @@ roiBox.addEventListener('pointerup',commitRoi);
 roiBox.addEventListener('pointercancel',commitRoi);
 window.addEventListener('resize',drawRoi);
 let refreshTimer=setInterval(refresh,refreshMs);
+setInterval(pollActivity,400);
 document.getElementById('admin-btn').addEventListener('click',async()=>{{
     const adminOverlay=document.getElementById('admin-overlay');
     adminOverlay.hidden=false;
@@ -629,7 +659,9 @@ def make_handler(
     cached_reading_state_lock: RLock | None = None,
     webhook_notifier_state: list[HomeAssistantWebhookNotifier | None] | None = None,
     on_admin_save: object = None,
+    activity: ActivityTracker | None = None,
 ) -> Type[BaseHTTPRequestHandler]:
+    activity = activity or ActivityTracker()
     current_roi: list[ROI | None] = roi_state if roi_state is not None else [settings.roi]
     roi_lock = RLock()
     cached_reading: list[dict[str, object] | None] = cached_reading_state if cached_reading_state is not None else [None]
@@ -703,6 +735,13 @@ def make_handler(
         }
 
     def decode_latest(image: np.ndarray) -> dict[str, object]:
+        activity.set(ANALYZING)
+        try:
+            return _decode_latest(image)
+        finally:
+            activity.set(IDLE)
+
+    def _decode_latest(image: np.ndarray) -> dict[str, object]:
         roi = get_roi()
         if roi is None or (settings.auto_locate and settings.digit_boxes is None):
             with settings_lock:
@@ -738,6 +777,8 @@ def make_handler(
         with cached_reading_lock:
             cached_reading[0] = result
         return result
+
+    decode_lock = Lock()
 
     def get_cached_reading() -> dict[str, object] | None:
         with cached_reading_lock:
@@ -802,6 +843,12 @@ def make_handler(
                     }
                     self._send_json(200, cached)
                     return
+                # A grab or analysis is already under way and will fill the
+                # cache; decoding the old frame here would send a duplicate
+                # request to the LLM.
+                if activity.snapshot()["phase"] != IDLE:
+                    self._send_json(200, {"busy": True})
+                    return
                 # No cache yet — decode once on first request.
                 image = cv2.imread(str(settings.image_path), cv2.IMREAD_UNCHANGED)
                 if image is None:
@@ -833,7 +880,9 @@ def make_handler(
                     )
                     return
                 try:
-                    reading = decode_latest(image)
+                    with decode_lock:
+                        # Concurrent requests share one decode.
+                        reading = get_cached_reading() or decode_latest(image)
                 except ValueError as error:
                     self._send_json(500, {"error": str(error)})
                     return
@@ -850,6 +899,10 @@ def make_handler(
                 self._send_json(200, payload)
                 return
 
+            if request_path == "/activity.json":
+                self._send_json(200, activity.snapshot())
+                return
+
             if request_path == "/camera-status.json":
                 self._send_json(200, _camera_status(settings.image_path))
                 return
@@ -862,24 +915,14 @@ def make_handler(
             if image is None:
                 self.send_error(503, "Camera has not supplied a frame")
                 return
-            roi_for_annotation = get_roi()
-            if roi_for_annotation is None:
-                located = locate_display(image, settings.brightness_threshold)
-                roi_for_annotation = located.roi if located is not None else None
-            try:
-                if roi_for_annotation is not None:
-                    annotated = annotate_roi(image, roi_for_annotation)
-                else:
-                    if image.ndim == 2:
-                        annotated = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-                    elif image.ndim == 3 and image.shape[2] == 4:
-                        annotated = cv2.cvtColor(image, cv2.COLOR_BGRA2BGR)
-                    else:
-                        annotated = image.copy()
-            except ValueError as error:
-                self.send_error(500, str(error))
-                return
-            ok, encoded = cv2.imencode(".jpg", annotated)
+            # The ROI box is drawn by the page, so serve the frame unannotated.
+            if image.ndim == 2:
+                plain = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+            elif image.ndim == 3 and image.shape[2] == 4:
+                plain = cv2.cvtColor(image, cv2.COLOR_BGRA2BGR)
+            else:
+                plain = image
+            ok, encoded = cv2.imencode(".jpg", plain)
             if not ok:
                 self.send_error(500, "Could not encode latest image")
                 return
@@ -897,6 +940,9 @@ def make_handler(
                 if camera_poller is None:
                     self._send_json(503, {"error": "RTSP_URL is not configured"})
                     return
+                # Mark the grab as started before clearing the cache so a
+                # concurrent refresh doesn't decode the old frame.
+                activity.set(GRABBING)
                 # Clear stale cache before capture so the fresh frame is decoded.
                 with cached_reading_lock:
                     cached_reading[0] = None
@@ -1187,6 +1233,7 @@ def serve(settings: ViewerSettings | None = None) -> None:
         "ollama_model": settings.ollama_model,
     }
     settings_lock = RLock()
+    activity = ActivityTracker()
 
     def send_for_issue(issue: str | None, payload: dict[str, object]) -> None:
         delay = delay_tracker.update(issue)
@@ -1211,6 +1258,14 @@ def serve(settings: ViewerSettings | None = None) -> None:
     last_reading_state: list[tuple[float | None, str | None]] = [None, None]
 
     def observe_frame(frame: np.ndarray | None, error: str | None) -> None:
+        if frame is not None and error is None:
+            activity.set(ANALYZING)
+        try:
+            _observe_frame(frame, error)
+        finally:
+            activity.set(IDLE)
+
+    def _observe_frame(frame: np.ndarray | None, error: str | None) -> None:
         if frame is None or error is not None:
             send_for_issue(
                 "error",
@@ -1346,6 +1401,7 @@ def serve(settings: ViewerSettings | None = None) -> None:
                 image_path=settings.image_path,
                 poll_seconds=poll_secs,
                 on_frame=observe_frame,
+                on_grab_state=lambda grabbing: activity.set(GRABBING if grabbing else IDLE),
             )
             camera_poller.capture_once()
             camera_thread = Thread(
@@ -1378,6 +1434,7 @@ def serve(settings: ViewerSettings | None = None) -> None:
             shared_cached_reading_lock,
             webhook_notifier_state=webhook_notifier,
             on_admin_save=start_camera,
+            activity=activity,
         ),
     )
     print(f"boilerwatch: serving on port {settings.port}; image={settings.image_path}")

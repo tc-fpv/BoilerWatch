@@ -143,7 +143,8 @@ def test_viewer_serves_latest_image_with_roi(tmp_path) -> None:
         assert response.headers.get_content_type() == "image/jpeg"
         frame = cv2.imdecode(np.frombuffer(response.read(), dtype=np.uint8), cv2.IMREAD_COLOR)
         assert frame.shape == (480, 640, 3)
-        assert frame[238, 330, 2] > frame[238, 330, 0]
+        # The ROI box is drawn by the page, not burned into the image.
+        assert abs(int(frame[238, 330, 2]) - int(frame[238, 331, 2])) < 40
 
         reading_response = urlopen(f"http://127.0.0.1:{server.server_port}/reading.json?t=123")
         assert reading_response.headers.get_content_type() == "application/json"

@@ -32,7 +32,9 @@ class CameraPoller:
         capture_fn: CaptureFunction | None = None,
         logger: Callable[..., None] | None = None,
         on_frame: FrameCallback | None = None,
+        on_grab_state: Callable[[bool], None] | None = None,
     ) -> None:
+        self.on_grab_state = on_grab_state
         self.rtsp_url = rtsp_url
         self.username = username
         self.password = password
@@ -106,7 +108,15 @@ class CameraPoller:
 
     def capture_once(self) -> bool:
         with self._capture_lock:
-            return self._capture_once()
+            # Held for the whole capture (grab, save and on_frame analysis) so
+            # observers never see an idle gap between the stages.
+            if self.on_grab_state is not None:
+                self.on_grab_state(True)
+            try:
+                return self._capture_once()
+            finally:
+                if self.on_grab_state is not None:
+                    self.on_grab_state(False)
 
     def _capture_once(self) -> bool:
         try:
