@@ -1,10 +1,46 @@
 # Boiler Reader
 
-Camera-based digital boiler pressure gauge reader for Reolink RTSP cameras, with seven-segment decoding, Home Assistant webhook notifications, and an interactive calibration viewer.
+Camera-based digital boiler pressure gauge reader for Reolink RTSP cameras. The display is located automatically, read by a vision LLM running on a local Ollama server, and reported through Home Assistant webhook notifications and a web UI.
 
-## Decoder Stage
+## Reading Pipeline
 
-The decoder crops the configured ROI, applies grayscale CLAHE, Otsu thresholding (using a fallback for uniform images), and light morphological cleanup. Digit boxes are coordinates relative to the cropped ROI. Within each box, normalized sample zones read segments in `a` through `g` order. With `expected_format: auto`, a lit decimal point and two populated numeric positions identify a pressure reading (`n.n`); three identify a temperature (`nn.n`). A blank leading slot is allowed on a three-position display. Three populated positions without a lit decimal point are not accepted as numeric readings. Common seven-segment letters and dashes are recognized; unsupported patterns remain undecoded.
+1. **Grab:** the server pulls a frame from `RTSP_URL` every `POLL_SECONDS`.
+2. **Locate:** `locator.py` finds the self-illuminated digit row by brightness thresholding (`BRIGHTNESS_THRESHOLD`, default 30), excludes the OSD timestamp strip and the unit indicator lights, and returns the display ROI. No manual ROI or digit-box configuration is needed.
+3. **Read (LLM):** `ocr.py` crops the display, converts it to grayscale, upscales it 4x, and sends it to Ollama's `/api/generate` endpoint with a prompt asking for only the digits. The model's reply is reduced to the first run of 2–3 digits and interpreted by digit count:
+
+   | Reply | Meaning | Example |
+   | --- | --- | --- |
+   | 2 digits | Pressure, `n.n` bar | `12` → 1.2 bar |
+   | 3 digits | Temperature, `nn.n` °C | `321` → 32.1 °C |
+   | 3 characters matching a manual error code | Error | `ECS`; `FIL` is reported as `FILL` |
+   | anything else | Invalid reading | |
+
+4. **Alert:** low pressure or an invalid/error display that persists past the error delay triggers the Home Assistant webhook (see below).
+
+### LLM requirements
+
+The container does not bundle any OCR or ML libraries (EasyOCR and PyTorch are no longer used). It needs network access to an Ollama server with a vision-capable model pulled, for example:
+
+```sh
+ollama pull minicpm-v4.6:latest
+```
+
+| Setting | Env var (seed) | Default |
+| --- | --- | --- |
+| Ollama URL, e.g. `http://192.168.0.26:11434` | `OLLAMA_URL` | none (required) |
+| Model | `OLLAMA_MODEL` | `minicpm-v4.6:latest` |
+
+Both can also be set in the UI's Admin panel; saved values in `reader-settings.json` take priority over the environment. If `OLLAMA_URL` is not set, readings fail with a configuration error. If the Ollama request fails or times out (60 seconds), the reading is treated as invalid rather than reusing an old value.
+
+Implementation notes: requests use `keep_alive: -1` so the model stays loaded, and a random seed plus a single random pixel in each image prevent Ollama from replaying a cached response for a near-identical frame. Each reading logs the raw LLM reply and inference time to stdout.
+
+### Capturing misreads
+
+Use **Capture Misread** in the UI, entering the value shown on the real display, to save the full frame to `screenshots/` beside `LAST_IMAGE_PATH`. The filename records the LLM's reading and the manual value (`<timestamp>_LLM_<reading>_MANUAL_<value>_<unit>.jpg`), and a matching `_ocr.jpg` file holds the exact crop the LLM was shown. Use these to diagnose misreads and to tune the model, prompt, or brightness threshold.
+
+## Segment Decoder (manual ROI mode)
+
+The original seven-segment decoder is still used when a manual ROI and digit boxes are configured, and by the `decode_image` CLI described below. It crops the configured ROI, applies grayscale CLAHE, Otsu thresholding (using a fallback for uniform images), and light morphological cleanup. Digit boxes are coordinates relative to the cropped ROI. Within each box, normalized sample zones read segments in `a` through `g` order. With `expected_format: auto`, a lit decimal point and two populated numeric positions identify a pressure reading (`n.n`); three identify a temperature (`nn.n`). A blank leading slot is allowed on a three-position display. Three populated positions without a lit decimal point are not accepted as numeric readings. Common seven-segment letters and dashes are recognized; unsupported patterns remain undecoded.
 
 Recognized manual error codes include A10, A11, A20, A21, A30, A40, A41, A42, A58, A59, A60, A70, A71, A80, A81, A90, A91, ECS, SES, and FIL. The three-character display `FIL` is reported as the manual code `FILL`; the raw display text remains available separately.
 
@@ -98,13 +134,15 @@ The sidebar also shows editable poll seconds and low-pressure limit fields. Thes
 
 ## Portainer Deployment
 
-The repository includes `Dockerfile` and `docker-compose.yml` for Portainer. A GitHub Actions workflow publishes multi-architecture images (`linux/amd64` and `linux/arm64`) to `ghcr.io/tc-fpv/boiler-reader` on each push to `master`, tagged `latest` and with the commit SHA. It uses the workflow's scoped `GITHUB_TOKEN`; no registry PAT is stored in the repository. The image uses Python 3.12-slim, runs as a non-root user, and stores the latest frame, camera status, ROI, and saved settings in the persistent `boiler_reader_data` volume mounted at `/data`.
+The repository includes `Dockerfile` and `docker-compose.yml` for Portainer. A GitHub Actions workflow publishes multi-architecture images (`linux/amd64` and `linux/arm64`) to `ghcr.io/tc-fpv/boilerwatch` on each push to `master`, tagged `latest` and with the commit SHA. It uses the workflow's scoped `GITHUB_TOKEN`; no registry PAT is stored in the repository. The image uses Python 3.12-slim, runs as a non-root user, and stores the latest frame, camera status, ROI, saved settings, and misread screenshots in the persistent `boilerwatch_data` volume mounted at `/data`. Because OCR is delegated to Ollama, the image contains only OpenCV, NumPy, and python-dotenv, so it is small; the Ollama server must be reachable from the container.
+
+The compose file also runs a small `image-pruner` service that removes dangling images hourly (`docker image prune -f`), so superseded `latest` images do not accumulate on the Portainer host. It mounts the Docker socket, which gives that container root-equivalent access to the host; remove the service if you prefer to prune manually. The `boilerwatch` service's logs are capped at three 10 MB files.
 
 1. Push to `master` and wait for **Actions** > **Publish container** to complete.
 2. In GitHub, open the published `boiler-reader` package under the account's Packages. Packages are private by default unless visibility is changed. Make it public for anonymous Portainer pulls, or configure Portainer with a registry credential that has `read:packages` access.
 3. In Portainer, choose **Stacks** > **Add stack** > **Git Repository**.
-4. Enter `https://github.com/tc-fpv/boiler-reader`, select branch `master`, and set the Compose path to `docker-compose.yml`.
-5. Add the variables from `.env.example` in Portainer's stack environment section. Set `RTSP_URL`, and keep `RTSP_USER`, `RTSP_PASS`, and `HA_WEBHOOK_URL` private there. The geometry variables (`ROI_X`, `ROI_Y` etc.) are no longer needed — the display is located automatically. Do not commit `.env` or the webhook ID.
-6. Deploy the stack. Portainer pulls `ghcr.io/tc-fpv/boiler-reader:latest`; the viewer is exposed on `WEB_PORT` (default `8080`). Set `IMAGE_TAG` to a `sha-...` tag to pin a specific build.
+4. Enter the repository URL (`https://github.com/tc-fpv/boiler-reader`), select branch `master`, and set the Compose path to `docker-compose.yml`.
+5. Add the variables from `.env.example` in Portainer's stack environment section. Set `RTSP_URL` and `OLLAMA_URL` (and optionally `OLLAMA_MODEL`), and keep `RTSP_USER`, `RTSP_PASS`, and `HA_WEBHOOK_URL` private there. The geometry variables (`ROI_X`, `ROI_Y` etc.) are no longer needed — the display is located automatically. Do not commit `.env` or the webhook ID.
+6. Deploy the stack. Portainer pulls `ghcr.io/tc-fpv/boilerwatch:latest`; the viewer is exposed on `WEB_PORT` (default `8080`). Set `IMAGE_TAG` to a `sha-...` tag to pin a specific build.
 
 For local Docker Compose, copy `.env.example` to `.env`, fill in the private values, then run `docker compose up -d`. The app accepts `LOWER_LIMIT` as a compatibility alias, but `LOW_THRESHOLD` is the canonical setting name. The GHCR image is available after the GitHub Actions publish workflow completes.

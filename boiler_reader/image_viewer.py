@@ -416,6 +416,10 @@ async function pollActivity(){{
         const activity=await response.json();
         const previous=phase;
         phase=activity.phase;
+        if(phase==='analyzing'&&previous!=='analyzing'&&!drag&&!saving)frame.src='/last.jpg?t='+Date.now();
+        if(phase==='analyzing'&&activity.roi&&!drag&&!saving){{
+            currentRoi=activity.roi;imageSize=activity.image_size;drawRoi();
+        }}
         applyRoiState();
         if(previous==='analyzing'&&phase!=='analyzing')refresh();
     }}catch(error){{}}
@@ -766,6 +770,10 @@ def make_handler(
                     cached_reading[0] = result
                 return result
             effective_roi = located.roi
+            activity.set_roi(
+                asdict(effective_roi),
+                {"width": image.shape[1], "height": image.shape[0]},
+            )
             with settings_lock:
                 _url = str(current_settings.get("ollama_url", ""))
                 _model = str(current_settings.get("ollama_model", "minicpm-v4.6:latest"))
@@ -1307,6 +1315,10 @@ def serve(settings: ViewerSettings | None = None) -> None:
                         shared_cached_reading[0] = None
                     return
                 display_crop = crop_display(frame, located)
+                activity.set_roi(
+                    asdict(located.roi),
+                    {"width": frame.shape[1], "height": frame.shape[0]},
+                )
                 with settings_lock:
                     _url = str(reader_settings.get("ollama_url", ""))
                     _model = str(reader_settings.get("ollama_model", "minicpm-v4.6:latest"))

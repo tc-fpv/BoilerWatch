@@ -2,8 +2,7 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    WEB_PORT=8080 \
-    EASYOCR_MODULE_PATH=/data/.EasyOCR
+    WEB_PORT=8080
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates ffmpeg libglib2.0-0 libgomp1 libgl1 \
@@ -16,8 +15,6 @@ RUN apt-get update \
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY boiler_reader ./boiler_reader
-# Install CPU-only PyTorch and torchvision together so versions are compatible.
-RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir .
 
 USER boilerwatch

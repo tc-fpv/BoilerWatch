@@ -16,12 +16,19 @@ class ActivityTracker:
         self._lock = Lock()
         self._phase = IDLE
         self._sequence = 0
+        self._roi: dict[str, object] | None = None
 
     def set(self, phase: str) -> None:
         with self._lock:
             self._phase = phase
             self._sequence += 1
+            self._roi = None
+
+    def set_roi(self, roi: dict[str, object], image_size: dict[str, object]) -> None:
+        """Publish the display ROI as soon as it is located, before analysis ends."""
+        with self._lock:
+            self._roi = {"roi": roi, "image_size": image_size}
 
     def snapshot(self) -> dict[str, object]:
         with self._lock:
-            return {"phase": self._phase, "sequence": self._sequence}
+            return {"phase": self._phase, "sequence": self._sequence, **(self._roi or {})}

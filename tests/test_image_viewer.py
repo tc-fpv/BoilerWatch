@@ -124,7 +124,7 @@ def test_viewer_serves_latest_image_with_roi(tmp_path) -> None:
         root = urlopen(f"http://127.0.0.1:{server.server_port}/")
         page = root.read().decode("utf-8")
         assert '<img id="frame" src="/last.jpg"' in page
-        assert "GAUGE DECODER" in page
+        assert "BOILERWATCH" in page
         assert 'id="error-code"' in page
         assert "fetch('/reading.json" in page
         assert 'id="a-poll-seconds"' in page
