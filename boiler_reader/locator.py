@@ -199,6 +199,36 @@ def _infer_digit_boxes(
     return digit_boxes, decimal_box
 
 
+def _refine_digit_row(
+    gray: np.ndarray,
+    rect: tuple[int, int, int, int],
+    threshold: int,
+) -> tuple[int, int, int, int] | None:
+    """Re-find the digit row inside ``rect`` at a stricter, local threshold.
+
+    On overexposed frames the glow around a digit can bridge to a lit unit
+    indicator below it at the global threshold, merging both into one blob.
+    Otsu on the candidate region separates the saturated segments from the
+    glow, so the digit row can be found again without the indicator.  Returns
+    the refined rect in frame coordinates, or None to keep the original.
+    """
+    x, y, w, h = rect
+    crop = gray[y:y + h, x:x + w]
+    if crop.size == 0 or int(crop.min()) == int(crop.max()):
+        return None
+    otsu, _ = cv2.threshold(crop, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+    if int(otsu) <= threshold:
+        return None
+
+    mask = _brightness_mask(crop, int(otsu))
+    # Treat the crop as its own frame; the OSD strip can't be inside it.
+    contours = _find_digit_row_contours(mask, crop.shape[1] * 100, crop.shape[0])
+    if not contours:
+        return None
+    rx, ry, rw, rh = _merge_bounding_rect(contours)
+    return x + rx, y + ry, rw, rh
+
+
 def _confidence(mask: np.ndarray, roi_x: int, roi_y: int, roi_w: int, roi_h: int) -> float:
     """Fraction of bright pixels in the frame that fall inside the detected ROI."""
     total_bright = int(np.count_nonzero(mask))
@@ -228,6 +258,9 @@ def locate_display(
         return None
 
     bx, by, bw, bh = _merge_bounding_rect(contours)
+    refined = _refine_digit_row(gray, (bx, by, bw, bh), brightness_threshold)
+    if refined is not None:
+        bx, by, bw, bh = refined
     pad_px = max(2, int(bh * _BOX_PADDING_FRACTION))
     # Expand the bounding rect by padding in all directions.
     roi_x = max(0, bx - pad_px)

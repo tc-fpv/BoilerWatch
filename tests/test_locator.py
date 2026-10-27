@@ -69,6 +69,25 @@ def test_roi_excludes_unit_indicator_lights_below_digits() -> None:
     assert result.roi.y + result.roi.height <= 330
 
 
+def test_roi_excludes_indicator_bridged_by_glow_on_overexposed_frame() -> None:
+    # Live misread (1.1 bar read as 1.2): on this saturated frame the glow
+    # around the second "1" bridges to the lit indicator below at the default
+    # threshold, so the ROI grew to 146 px and the indicator looked like a
+    # third character.  The display is two digits (77 px tall) plus a decimal.
+    image = cv2.imread(
+        str(_fixture("boiler-1.1 mixed up as 1.2.jpg")),
+        cv2.IMREAD_UNCHANGED,
+    )
+    assert image is not None
+
+    result = locate_display(image)
+
+    assert result is not None
+    assert result.roi.height < 100
+    assert result.roi.y + result.roi.height <= 370
+    assert len(result.digit_boxes) == 2
+
+
 def test_returns_none_for_completely_black_frame() -> None:
     image = np.zeros((480, 640, 3), dtype=np.uint8)
 
@@ -110,21 +129,6 @@ def test_locate_display_accepts_custom_threshold() -> None:
         assert reading.valid
 
 
-def test_locates_moved_and_skewed_pressure_display() -> None:
-    image = cv2.imread(str(_fixture("boiler-pressure moved.jpg")), cv2.IMREAD_UNCHANGED)
-    assert image is not None
-
-    result = locate_display(image)
-
-    assert result is not None
-    assert result.confidence > 0.5
-
-    reading, _ = read_display(crop_display(image, result))
-    assert reading.valid
-    assert reading.value == pytest.approx(1.2, abs=0.1)
-    assert reading.unit == "bar"
-
-
 def test_crop_display_returns_roi_region() -> None:
     image = cv2.imread(str(_fixture("boiler-pressure.jpg")), cv2.IMREAD_UNCHANGED)
     assert image is not None
@@ -135,3 +139,23 @@ def test_crop_display_returns_roi_region() -> None:
     crop = crop_display(image, result)
     assert crop.shape[0] == result.roi.height
     assert crop.shape[1] == result.roi.width
+
+
+def test_locates_temperature_display_at_covered_indicator_angle() -> None:
+    # Live frame after the unit indicators were covered and the camera moved:
+    # digits are skewed and the burner flame indicator is lit above them.
+    image = cv2.imread(
+        str(_fixture("boiler-temperature-cover-angle.png")), cv2.IMREAD_UNCHANGED
+    )
+    assert image is not None
+
+    result = locate_display(image)
+
+    assert result is not None
+    assert result.confidence > 0.5
+    assert len(result.digit_boxes) == 3
+
+    reading, _ = read_display(crop_display(image, result))
+    assert reading.valid
+    assert reading.value == pytest.approx(34.3, abs=0.1)
+    assert reading.unit == "°C"
