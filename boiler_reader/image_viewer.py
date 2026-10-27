@@ -311,6 +311,7 @@ h1{{margin:0;color:#9bad9f;font-size:12px;font-weight:600;letter-spacing:1px}}
 #unit{{font-size:15px;color:#9bad9f}}
 #status{{align-self:flex-start;border:1px solid #668875;color:#bde2c7;padding:6px 9px;font-size:12px}}
 #status.invalid{{border-color:#b77568;color:#f0b2a4}}
+#llm-image{{display:block;max-width:100%;max-height:90px;object-fit:contain;align-self:flex-start;border:1px solid #35433a;background:#000}}
 dl{{margin:0;display:grid;grid-template-columns:1fr;gap:7px}}
 dt{{margin-top:9px;color:#829187;font-size:11px;text-transform:uppercase}}
 dd{{margin:0;overflow-wrap:anywhere;font-size:14px;color:#e0e9e3}}
@@ -383,10 +384,11 @@ button.action:disabled{{opacity:.6;cursor:wait}}
 </form></div></div>
 <main><div id="stage"><img id="frame" src="/last.jpg" alt="Latest camera frame with ROI"><div id="roi-box" title="Drag to move ROI"><button id="resize-handle" type="button" title="Drag to resize ROI" aria-label="Resize ROI"></button></div><div id="grab-dot" title="Grabbing frame"></div></div></main>
 <aside><h1>BOILERWATCH</h1><div class="reading"><span id="value">--</span><span id="unit">bar</span></div>
-<div id="status">WAITING</div><dl><dt>Display</dt><dd id="display">--</dd>
+<div id="status">WAITING</div>
+<img id="llm-image" alt="Processed image sent to the LLM" hidden>
+<dl><dt>Display</dt><dd id="display">--</dd>
 <dt>Error code</dt><dd id="error-code">--</dd>
-<dt>Issue timer</dt><dd id="issue-delay">No active issue</dd>
-<dt>Segment pattern</dt><dd id="pattern">--</dd></dl>
+<dt>Issue timer</dt><dd id="issue-delay">No active issue</dd></dl>
 <div class="actions"><button class="action" id="capture-now" type="button">Grab new frame</button>
 <button class="action" id="capture-image-btn" type="button" style="border-color:#625226;background:#2c2520">Capture Misread</button>
 <button class="action" id="send-test-webhook" type="button">Send test HA message</button>
@@ -451,12 +453,15 @@ function showReading(reading){{
     document.getElementById('issue-delay').textContent=delay&&delay.issue
         ?(delay.issue==='low_pressure'?'Low pressure: ':'Error: ')+(delay.eligible?'ready':delay.remaining_seconds+'s remaining')
         :'No active issue';
-    document.getElementById('pattern').textContent=reading.raw_pattern||'--';
     const status=document.getElementById('status');
     status.textContent=valid?(unit==='°C'?'VALID TEMPERATURE':'VALID PRESSURE'):'INVALID / ERROR';
     status.classList.toggle('invalid',!valid);
     document.getElementById('updated').textContent='Scanned '+new Date().toLocaleTimeString();
     if(reading.camera)showLastGrabbed(reading.camera);
+    const llmImage=document.getElementById('llm-image');
+    llmImage.onload=()=>{{llmImage.hidden=false;}};
+    llmImage.onerror=()=>{{llmImage.hidden=true;}};
+    llmImage.src='/llm-image.jpg?t='+Date.now();
     drawRoi();
 }}
 function showLastGrabbed(camera){{
@@ -481,7 +486,6 @@ async function refresh(){{
         document.getElementById('display').textContent=error.message;
         document.getElementById('error-code').textContent='--';
         document.getElementById('issue-delay').textContent=error.message;
-        document.getElementById('pattern').textContent='--';
         status.textContent='NO IMAGE';
         status.classList.add('invalid');
         document.getElementById('updated').textContent='Waiting for latest frame';
@@ -664,8 +668,10 @@ def make_handler(
     webhook_notifier_state: list[HomeAssistantWebhookNotifier | None] | None = None,
     on_admin_save: object = None,
     activity: ActivityTracker | None = None,
+    llm_image_state: list[bytes | None] | None = None,
 ) -> Type[BaseHTTPRequestHandler]:
     activity = activity or ActivityTracker()
+    llm_image: list[bytes | None] = llm_image_state if llm_image_state is not None else [None]
     current_roi: list[ROI | None] = roi_state if roi_state is not None else [settings.roi]
     roi_lock = RLock()
     cached_reading: list[dict[str, object] | None] = cached_reading_state if cached_reading_state is not None else [None]
@@ -913,6 +919,19 @@ def make_handler(
 
             if request_path == "/camera-status.json":
                 self._send_json(200, _camera_status(settings.image_path))
+                return
+
+            if request_path == "/llm-image.jpg":
+                body = llm_image[0]
+                if body is None:
+                    self.send_error(404, "No LLM image yet")
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(body)
                 return
 
             if request_path != "/last.jpg":
@@ -1225,6 +1244,7 @@ def serve(settings: ViewerSettings | None = None) -> None:
     active_roi: list[ROI | None] = [settings.roi]
     shared_cached_reading: list[dict[str, object] | None] = [None]
     shared_cached_reading_lock = RLock()
+    shared_llm_image: list[bytes | None] = [None]
     reader_settings: dict[str, object] = {
         "poll_seconds": settings.poll_seconds,
         "low_threshold": settings.low_threshold,
@@ -1323,6 +1343,9 @@ def serve(settings: ViewerSettings | None = None) -> None:
                     _url = str(reader_settings.get("ollama_url", ""))
                     _model = str(reader_settings.get("ollama_model", "minicpm-v4.6:latest"))
                 reading, ocr_processed = read_display(display_crop, _url, _model)
+                ok, encoded = cv2.imencode(".jpg", ocr_processed)
+                if ok:
+                    shared_llm_image[0] = encoded.tobytes()
                 effective_roi = located.roi
             else:
                 reading = decode_frame(frame, _decoder_config(settings, roi))
@@ -1447,6 +1470,7 @@ def serve(settings: ViewerSettings | None = None) -> None:
             webhook_notifier_state=webhook_notifier,
             on_admin_save=start_camera,
             activity=activity,
+            llm_image_state=shared_llm_image,
         ),
     )
     print(f"boilerwatch: serving on port {settings.port}; image={settings.image_path}")
