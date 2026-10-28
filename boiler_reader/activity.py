@@ -17,6 +17,7 @@ class ActivityTracker:
         self._phase = IDLE
         self._sequence = 0
         self._roi: dict[str, object] | None = None
+        self._llm_image = 0
 
     def set(self, phase: str) -> None:
         with self._lock:
@@ -29,6 +30,16 @@ class ActivityTracker:
         with self._lock:
             self._roi = {"roi": roi, "image_size": image_size}
 
+    def mark_llm_image(self) -> None:
+        """Record that a new image has been prepared for the LLM."""
+        with self._lock:
+            self._llm_image += 1
+
     def snapshot(self) -> dict[str, object]:
         with self._lock:
-            return {"phase": self._phase, "sequence": self._sequence, **(self._roi or {})}
+            return {
+                "phase": self._phase,
+                "sequence": self._sequence,
+                "llm_image": self._llm_image,
+                **(self._roi or {}),
+            }

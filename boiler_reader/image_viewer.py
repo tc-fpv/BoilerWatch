@@ -272,6 +272,16 @@ def annotate_roi(image: np.ndarray, roi: ROI) -> np.ndarray:
     return annotated
 
 
+def _publish_llm_image(
+    state: list[bytes | None], activity: ActivityTracker, processed: np.ndarray
+) -> None:
+    """Store the image being sent to the LLM and tell the UI it changed."""
+    ok, encoded = cv2.imencode(".jpg", processed)
+    if ok:
+        state[0] = encoded.tobytes()
+        activity.mark_llm_image()
+
+
 def _decoder_config(settings: ViewerSettings, roi: ROI) -> DecoderConfig:
     return DecoderConfig(
         roi=roi,
@@ -308,9 +318,13 @@ aside{{flex:0 0 310px;padding:28px 24px;background:#17201c;border-left:1px solid
 h1{{margin:0;color:#9bad9f;font-size:12px;font-weight:600;letter-spacing:1px}}
 .reading{{display:flex;align-items:baseline;gap:10px;min-height:66px}}
 #value{{font-size:52px;line-height:1;color:#f1f6f2}}
+@keyframes value-flash{{0%,100%{{opacity:1}}50%{{opacity:.1}}}}
+#value.flash{{animation:value-flash .4s ease-in-out 2}}
 #unit{{font-size:15px;color:#9bad9f}}
 #status{{align-self:flex-start;border:1px solid #668875;color:#bde2c7;padding:6px 9px;font-size:12px}}
 #status.invalid{{border-color:#b77568;color:#f0b2a4}}
+@keyframes llm-flash{{0%,100%{{border-color:#35433a;box-shadow:0 0 0 rgba(144,238,144,0)}}50%{{border-color:#90ee90;box-shadow:0 0 10px rgba(144,238,144,.6)}}}}
+#llm-image.flash{{animation:llm-flash .8s ease-in-out 2}}
 #llm-image{{display:block;max-width:100%;max-height:90px;object-fit:contain;align-self:flex-start;border:1px solid #35433a;background:#000}}
 dl{{margin:0;display:grid;grid-template-columns:1fr;gap:7px}}
 dt{{margin-top:9px;color:#829187;font-size:11px;text-transform:uppercase}}
@@ -405,6 +419,14 @@ let currentRoi=null;
 let drag=null;
 let saving=false;
 let phase='idle';
+let llmImageVersion=null;
+let flashValuePending=false;
+const llmImage=document.getElementById('llm-image');
+llmImage.onload=()=>{{
+    llmImage.hidden=false;
+    llmImage.classList.remove('flash');void llmImage.offsetWidth;llmImage.classList.add('flash');
+}};
+llmImage.onerror=()=>{{llmImage.hidden=true;}};
 let roiResult=null;
 function applyRoiState(){{
     roiBox.classList.toggle('analyzing',phase==='analyzing');
@@ -422,8 +444,13 @@ async function pollActivity(){{
         if(phase==='analyzing'&&activity.roi&&!drag&&!saving){{
             currentRoi=activity.roi;imageSize=activity.image_size;drawRoi();
         }}
+        if(activity.llm_image!==llmImageVersion){{
+            const first=llmImageVersion===null;
+            llmImageVersion=activity.llm_image;
+            if(!first||activity.llm_image>0)llmImage.src='/llm-image.jpg?t='+Date.now();
+        }}
         applyRoiState();
-        if(previous==='analyzing'&&phase!=='analyzing')refresh();
+        if(previous==='analyzing'&&phase!=='analyzing'){{flashValuePending=true;refresh();}}
     }}catch(error){{}}
 }}
 function drawRoi(){{
@@ -445,6 +472,11 @@ function showReading(reading){{
     applyRoiState();
     const unit=reading.unit||'bar';
     document.getElementById('value').textContent=valid?Number(reading.value).toFixed(1):'--';
+    if(flashValuePending){{
+        flashValuePending=false;
+        const valueEl=document.getElementById('value');
+        valueEl.classList.remove('flash');void valueEl.offsetWidth;valueEl.classList.add('flash');
+    }}
     document.getElementById('unit').textContent=unit;
     document.getElementById('unit').hidden=!valid;
     document.getElementById('display').textContent=reading.display_text||'--';
@@ -458,10 +490,6 @@ function showReading(reading){{
     status.classList.toggle('invalid',!valid);
     document.getElementById('updated').textContent='Scanned '+new Date().toLocaleTimeString();
     if(reading.camera)showLastGrabbed(reading.camera);
-    const llmImage=document.getElementById('llm-image');
-    llmImage.onload=()=>{{llmImage.hidden=false;}};
-    llmImage.onerror=()=>{{llmImage.hidden=true;}};
-    llmImage.src='/llm-image.jpg?t='+Date.now();
     drawRoi();
 }}
 function showLastGrabbed(camera){{
@@ -783,7 +811,12 @@ def make_handler(
             with settings_lock:
                 _url = str(current_settings.get("ollama_url", ""))
                 _model = str(current_settings.get("ollama_model", "minicpm-v4.6:latest"))
-            reading, _ = read_display(crop_display(image, located), _url, _model)
+            reading, _ = read_display(
+                crop_display(image, located),
+                _url,
+                _model,
+                on_prepared=lambda img: _publish_llm_image(llm_image, activity, img),
+            )
         else:
             effective_roi = roi
             reading = decode_frame(image, _decoder_config(settings, effective_roi))
@@ -1342,10 +1375,12 @@ def serve(settings: ViewerSettings | None = None) -> None:
                 with settings_lock:
                     _url = str(reader_settings.get("ollama_url", ""))
                     _model = str(reader_settings.get("ollama_model", "minicpm-v4.6:latest"))
-                reading, ocr_processed = read_display(display_crop, _url, _model)
-                ok, encoded = cv2.imencode(".jpg", ocr_processed)
-                if ok:
-                    shared_llm_image[0] = encoded.tobytes()
+                reading, ocr_processed = read_display(
+                    display_crop,
+                    _url,
+                    _model,
+                    on_prepared=lambda img: _publish_llm_image(shared_llm_image, activity, img),
+                )
                 effective_roi = located.roi
             else:
                 reading = decode_frame(frame, _decoder_config(settings, roi))

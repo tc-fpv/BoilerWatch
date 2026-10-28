@@ -15,6 +15,7 @@ import random
 import re
 import time
 import urllib.request
+from typing import Callable
 
 import cv2
 import numpy as np
@@ -49,9 +50,19 @@ def _preprocess_crop_for_llm(crop: np.ndarray) -> np.ndarray:
     return upscaled
 
 
-def _ask_ollama(crop: np.ndarray, ollama_url: str, model: str, timeout: int = 60) -> tuple[str, float]:
-    """Send crop to Ollama, return (raw_response, elapsed_seconds)."""
-    processed = _preprocess_crop_for_llm(crop)
+def _ask_ollama(
+    crop: np.ndarray,
+    ollama_url: str,
+    model: str,
+    timeout: int = 60,
+    processed: np.ndarray | None = None,
+) -> tuple[str, float]:
+    """Send crop to Ollama, return (raw_response, elapsed_seconds).
+
+    Pass an already-preprocessed image as ``processed`` to send exactly those pixels.
+    """
+    if processed is None:
+        processed = _preprocess_crop_for_llm(crop)
     ok, encoded = cv2.imencode(".jpg", processed)
     if not ok:
         raise RuntimeError("Could not encode crop for Ollama")
@@ -144,6 +155,7 @@ def read_display(
     crop: np.ndarray,
     ollama_url: str = "",
     model: str = "minicpm-v4.6:latest",
+    on_prepared: Callable[[np.ndarray], None] | None = None,
 ) -> tuple[Reading, np.ndarray]:
     """Read a located display crop via Ollama LLM and return (Reading, processed_image).
 
@@ -158,9 +170,12 @@ def read_display(
         )
 
     processed = _preprocess_crop_for_llm(crop)
+    if on_prepared is not None:
+        # Called just before the request so the UI can show what is being sent.
+        on_prepared(processed)
 
     try:
-        raw, elapsed = _ask_ollama(crop, ollama_url, model)
+        raw, elapsed = _ask_ollama(crop, ollama_url, model, processed=processed)
     except Exception as exc:
         print(f"ocr: ollama request failed: {exc}")
         invalid = Reading(
