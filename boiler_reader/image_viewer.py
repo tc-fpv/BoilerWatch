@@ -6,8 +6,10 @@ import json
 import math
 import os
 import re
+import subprocess
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
+from functools import lru_cache
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Event, Lock, RLock, Thread
@@ -291,7 +293,28 @@ def _decoder_config(settings: ViewerSettings, roi: ROI) -> DecoderConfig:
     )
 
 
+@lru_cache(maxsize=1)
+def _build_commit() -> str:
+    """Short commit id: BUILD_COMMIT (set at image build), else local git, else 'dev'."""
+    baked = os.getenv("BUILD_COMMIT", "").strip()
+    if baked and baked != "unknown":
+        return baked[:7]
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short=7", "HEAD"],
+            cwd=Path(__file__).parent,
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=True,
+        )
+        return result.stdout.strip() or "dev"
+    except (OSError, subprocess.SubprocessError):
+        return "dev"
+
+
 def _page(refresh_seconds: int) -> bytes:
+    build_label = f"Build {_build_commit()}"
     html = f"""<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:,">
@@ -408,7 +431,7 @@ button.action:disabled{{opacity:.6;cursor:wait}}
 <button class="action" id="send-test-webhook" type="button">Send test HA message</button>
 <button class="action" id="admin-btn" type="button">Settings</button>
 <time id="last-grabbed">Last frame: unknown</time></div>
-<time id="updated">Waiting for reading</time></aside>
+<time id="updated">{build_label}</time></aside>
 <script>
 let refreshMs={refresh_seconds * 1000};
 const frame=document.getElementById('frame');
@@ -488,7 +511,7 @@ function showReading(reading){{
     const status=document.getElementById('status');
     status.textContent=valid?(unit==='°C'?'VALID TEMPERATURE':'VALID PRESSURE'):'INVALID / ERROR';
     status.classList.toggle('invalid',!valid);
-    document.getElementById('updated').textContent='Scanned '+new Date().toLocaleTimeString();
+    document.getElementById('updated').textContent='{build_label}';
     if(reading.camera)showLastGrabbed(reading.camera);
     drawRoi();
 }}

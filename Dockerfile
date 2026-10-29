@@ -17,6 +17,9 @@ COPY pyproject.toml README.md ./
 COPY boiler_reader ./boiler_reader
 RUN pip install --no-cache-dir .
 
+ARG GIT_SHA=unknown
+ENV BUILD_COMMIT=$GIT_SHA
+
 USER boilerwatch
 EXPOSE 8080
 
