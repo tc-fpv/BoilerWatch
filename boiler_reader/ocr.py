@@ -1,7 +1,9 @@
 """LLM-based reading of the located seven-segment display crop.
 
-Sends a preprocessed crop to a local Ollama VLM (default: lfm3-vl:latest)
-and interprets the returned digits using digit-count format rules:
+Sends differently preprocessed copies of the crop to a local Ollama VLM
+(default: lfm3-vl:latest) and takes a majority vote over the replies.  Each
+preprocessing fails on a different scene, so they rarely fail together.  The
+returned digits are interpreted using digit-count format rules:
   2 digits → pressure  (e.g. "12" → 1.2 bar)
   3 digits → temperature or error code  (e.g. "321" → 32.1 °C, "ECS" → error)
 """
@@ -9,6 +11,8 @@ and interprets the returned digits using digit-count format rules:
 from __future__ import annotations
 
 import base64
+import collections
+import dataclasses
 import json
 import os
 import random
@@ -56,20 +60,62 @@ def _normalise_lookalike_ones(raw: str) -> str:
     return re.sub("[" + re.escape(_ONE_LOOKALIKES) + "]", "1", text)
 
 
-def _preprocess_crop_for_llm(crop: np.ndarray) -> np.ndarray:
-    """Grayscale + 4x upscale, bright segments on dark background.
+def _to_gray(crop: np.ndarray) -> np.ndarray:
+    return cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if crop.ndim == 3 else crop
 
-    A single random-value pixel is written to the bottom-right corner so each
-    call produces unique image bytes, preventing Ollama's KV cache from
-    replaying a stale inference for an identical-looking image.
+
+def _upscale(gray: np.ndarray) -> np.ndarray:
+    """4x upscale, then write a random-value pixel to the bottom-right corner.
+
+    The pixel makes each call produce unique image bytes, preventing Ollama's
+    KV cache from replaying a stale inference for an identical-looking image.
     """
-    if crop.ndim == 3:
-        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-    else:
-        gray = crop
     upscaled = cv2.resize(gray, None, fx=_UPSCALE, fy=_UPSCALE, interpolation=cv2.INTER_CUBIC)
     upscaled[-1, -1] = random.randint(0, 255)
     return upscaled
+
+
+def _otsu(gray: np.ndarray) -> tuple[float, np.ndarray]:
+    return cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+
+
+def _preprocess_crop_for_llm(crop: np.ndarray) -> np.ndarray:
+    """Grayscale + 4x upscale, bright segments on dark background."""
+    return _upscale(_to_gray(crop))
+
+
+def _preprocess_saturated(crop: np.ndarray) -> np.ndarray:
+    """Scale brightness so 0.75 x the Otsu level becomes white.
+
+    Lifts dim live frames so a thin "1" is as bright as the other segments.
+    """
+    gray = _to_gray(crop)
+    level, _ = _otsu(gray)
+    scaled = gray.astype(np.float32) * 255 / max(0.75 * level, 1)
+    return _upscale(np.clip(scaled, 0, 255).astype(np.uint8))
+
+
+def _preprocess_binary_padded(crop: np.ndarray) -> np.ndarray:
+    """Otsu black-and-white with a black border so edge digits are not clipped."""
+    _, binary = _otsu(_to_gray(crop))
+    padded = cv2.copyMakeBorder(binary, 12, 12, 12, 12, cv2.BORDER_CONSTANT, value=0)
+    return _upscale(padded)
+
+
+def _preprocess_binary_inverted(crop: np.ndarray) -> np.ndarray:
+    """Otsu black-and-white, inverted (dark digits on white)."""
+    _, binary = _otsu(_to_gray(crop))
+    return _upscale(255 - binary)
+
+
+# Read in this order; the first is also the image shown in the UI.
+_PRIMARY_PREPROCESSORS = (
+    _preprocess_crop_for_llm,
+    _preprocess_saturated,
+    _preprocess_binary_padded,
+)
+# Only used as a tie-breaker when the primary reads disagree.
+_TIEBREAK_PREPROCESSOR = _preprocess_binary_inverted
 
 
 def _ask_ollama(
@@ -174,6 +220,27 @@ def _interpret(raw: str) -> Reading:
     )
 
 
+def _read_once(
+    crop: np.ndarray, ollama_url: str, model: str, processed: np.ndarray
+) -> str:
+    """One LLM read; a failed request counts as an empty reply."""
+    try:
+        raw, elapsed = _ask_ollama(crop, ollama_url, model, processed=processed)
+    except Exception as exc:
+        print(f"ocr: ollama request failed: {exc}")
+        return ""
+    print(f"ocr: llm={raw!r} ({elapsed:.1f}s)")
+    return raw
+
+
+def _vote(reads: list[str]) -> tuple[str | None, int]:
+    """Return (winning reply, votes) or (None, top votes) when the top two tie."""
+    ranked = collections.Counter(reads).most_common(2)
+    if len(ranked) == 1 or ranked[0][1] > ranked[1][1]:
+        return ranked[0]
+    return None, ranked[0][1]
+
+
 def read_display(
     crop: np.ndarray,
     ollama_url: str = "",
@@ -181,6 +248,12 @@ def read_display(
     on_prepared: Callable[[np.ndarray], None] | None = None,
 ) -> tuple[Reading, np.ndarray]:
     """Read a located display crop via Ollama LLM and return (Reading, processed_image).
+
+    The crop is read with each primary preprocessing.  If they all agree the
+    reading has confidence 1.0.  Otherwise one more differently preprocessed
+    read breaks the tie and the majority wins, with confidence = its share of
+    the votes.  With no majority the Reading is invalid (value None) and
+    raw_pattern lists the candidate replies separated by "/".
 
     ollama_url defaults to the OLLAMA_URL env var if not supplied.
     crop should be a grayscale or BGR image of just the digit row.
@@ -192,31 +265,39 @@ def read_display(
             "OLLAMA_URL is not configured. Set it in Settings or the OLLAMA_URL env var."
         )
 
-    processed = _preprocess_crop_for_llm(crop)
+    first = _PRIMARY_PREPROCESSORS[0](crop)
     if on_prepared is not None:
         # Called just before the request so the UI can show what is being sent.
-        on_prepared(processed)
+        on_prepared(first)
 
-    try:
-        raw, elapsed = _ask_ollama(crop, ollama_url, model, processed=processed)
-    except Exception as exc:
-        print(f"ocr: ollama request failed: {exc}")
-        invalid = Reading(
+    reads = [
+        _read_once(crop, ollama_url, model, first if i == 0 else prep(crop))
+        for i, prep in enumerate(_PRIMARY_PREPROCESSORS)
+    ]
+    if len(set(reads)) > 1:
+        reads.append(_read_once(crop, ollama_url, model, _TIEBREAK_PREPROCESSOR(crop)))
+
+    winner, votes = _vote(reads)
+    if winner is None:
+        candidates = "/".join(sorted(set(r for r in reads if r)))
+        reading = Reading(
             value=None,
             valid=False,
-            raw_pattern="",
+            raw_pattern=candidates,
             confidence=0.0,
-            display_text=None,
+            display_text=candidates or None,
             error_code=None,
             unit=None,
         )
-        return invalid, processed
+    else:
+        reading = dataclasses.replace(_interpret(winner), confidence=votes / len(reads))
+        if not reading.valid:
+            reading = dataclasses.replace(reading, confidence=0.0)
 
-    reading = _interpret(raw)
     print(
-        f"ocr: llm={raw!r} -> "
+        f"ocr: reads={reads} -> "
         f"{'valid' if reading.valid else 'invalid'} "
         f"{reading.value} {reading.unit or ''} "
-        f"({elapsed:.1f}s)"
+        f"(confidence {reading.confidence:.2f})"
     )
-    return reading, processed
+    return reading, first
