@@ -1,6 +1,6 @@
 """LLM-based reading of the located seven-segment display crop.
 
-Sends a preprocessed crop to a local Ollama VLM (default: minicpm-v4.6:latest)
+Sends a preprocessed crop to a local Ollama VLM (default: lfm3-vl:latest)
 and interprets the returned digits using digit-count format rules:
   2 digits → pressure  (e.g. "12" → 1.2 bar)
   3 digits → temperature or error code  (e.g. "321" → 32.1 °C, "ECS" → error)
@@ -30,7 +30,11 @@ _PROMPT = (
     "The digits are bright white on a dark background. "
     "Read the digits shown. "
     "Reply with only the digits, e.g. '12' or '321'. "
-    "Do not include decimal points or units. Do not explain or add any other text."
+    "Do not include decimal points or units. Do not explain or add any other text. "
+    "Step 1: read the digits. "
+    "Step 2: if you found fewer than 2 digits, look again for a thin vertical "
+    "stroke (the digit 1), usually at the left, and include it. "
+    "The final answer is read left to right."
 )
 
 
@@ -154,7 +158,7 @@ def _interpret(raw: str) -> Reading:
 def read_display(
     crop: np.ndarray,
     ollama_url: str = "",
-    model: str = "minicpm-v4.6:latest",
+    model: str = "lfm3-vl:latest",
     on_prepared: Callable[[np.ndarray], None] | None = None,
 ) -> tuple[Reading, np.ndarray]:
     """Read a located display crop via Ollama LLM and return (Reading, processed_image).

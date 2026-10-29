@@ -22,13 +22,13 @@ Camera-based digital boiler pressure gauge reader for Reolink RTSP cameras. The 
 The container does not bundle any OCR or ML libraries (EasyOCR and PyTorch are no longer used). It needs network access to an Ollama server with a vision-capable model pulled, for example:
 
 ```sh
-ollama pull minicpm-v4.6:latest
+ollama pull lfm3-vl:latest
 ```
 
 | Setting | Env var (seed) | Default |
 | --- | --- | --- |
 | Ollama URL, e.g. `http://192.168.0.26:11434` | `OLLAMA_URL` | none (required) |
-| Model | `OLLAMA_MODEL` | `minicpm-v4.6:latest` |
+| Model | `OLLAMA_MODEL` | `lfm3-vl:latest` |
 
 Both can also be set in the UI's Admin panel; saved values in `reader-settings.json` take priority over the environment. If `OLLAMA_URL` is not set, readings fail with a configuration error. If the Ollama request fails or times out (60 seconds), the reading is treated as invalid rather than reusing an old value.
 

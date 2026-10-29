@@ -210,7 +210,8 @@ def _refine_digit_row(
     indicator below it at the global threshold, merging both into one blob.
     Otsu on the candidate region separates the saturated segments from the
     glow, so the digit row can be found again without the indicator.  Returns
-    the refined rect in frame coordinates, or None to keep the original.
+    the refined rect in frame coordinates, or None to keep the original.  The
+    caller uses only its vertical extent.
     """
     x, y, w, h = rect
     crop = gray[y:y + h, x:x + w]
@@ -260,7 +261,9 @@ def locate_display(
     bx, by, bw, bh = _merge_bounding_rect(contours)
     refined = _refine_digit_row(gray, (bx, by, bw, bh), brightness_threshold)
     if refined is not None:
-        bx, by, bw, bh = refined
+        # Only trim vertically: the bridged indicator sits below the digits, and
+        # the stricter threshold can drop a dim, thin trailing "1" horizontally.
+        _, by, _, bh = refined
     pad_px = max(2, int(bh * _BOX_PADDING_FRACTION))
     # Expand the bounding rect by padding in all directions.
     roi_x = max(0, bx - pad_px)

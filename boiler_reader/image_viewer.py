@@ -50,7 +50,7 @@ class ViewerSettings:
     ha_webhook_url: str = ""
     ha_webhook_timeout: int = 5
     ollama_url: str = ""
-    ollama_model: str = "minicpm-v4.6:latest"
+    ollama_model: str = "lfm3-vl:latest"
 
 
 # Keys written to / read from reader-settings.json.
@@ -83,7 +83,7 @@ _SETTINGS_DEFAULTS: dict[str, object] = {
     "ha_webhook_url": "",
     "ha_webhook_timeout": 5,
     "ollama_url": "",
-    "ollama_model": "minicpm-v4.6:latest",
+    "ollama_model": "lfm3-vl:latest",
 }
 
 
@@ -120,7 +120,7 @@ def _load_admin_settings(settings_state_path: Path) -> dict[str, object]:
         "brightness_threshold": int(os.getenv("BRIGHTNESS_THRESHOLD", "30")),
         "expected_format": os.getenv("EXPECTED_FORMAT", "auto"),
         "ollama_url": os.getenv("OLLAMA_URL", "").strip(),
-        "ollama_model": os.getenv("OLLAMA_MODEL", "minicpm-v4.6:latest").strip(),
+        "ollama_model": os.getenv("OLLAMA_MODEL", "lfm3-vl:latest").strip(),
     }
     _persist_json(settings_state_path, seeded)
     return seeded
@@ -171,7 +171,7 @@ def settings_from_env() -> ViewerSettings:
         ha_webhook_url=str(saved["ha_webhook_url"]),
         ha_webhook_timeout=int(saved["ha_webhook_timeout"]),
         ollama_url=str(saved.get("ollama_url", "")),
-        ollama_model=str(saved.get("ollama_model", "minicpm-v4.6:latest")),
+        ollama_model=str(saved.get("ollama_model", "lfm3-vl:latest")),
     )
 
 
@@ -392,7 +392,7 @@ button.action:disabled{{opacity:.6;cursor:wait}}
 <div style="display:grid;gap:8px">
 <p style="margin:0;font-size:11px;color:#829187">Used to cross-check suspicious OCR readings. Leave URL blank to disable.</p>
 <label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">Ollama URL<input id="a-ollama-url" type="text" placeholder="http://192.168.0.26:11434" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
-<label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">Model<input id="a-ollama-model" type="text" placeholder="minicpm-v4.6:latest" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
+<label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">Model<input id="a-ollama-model" type="text" placeholder="lfm3-vl:latest" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
 </div></fieldset>
 <button id="admin-save" type="submit" style="justify-self:start;padding:8px 16px;border:1px solid #829987;background:#26372e;color:#edf4ee;font:inherit;cursor:pointer">Save</button>
 </form></div></div>
@@ -614,7 +614,7 @@ document.getElementById('admin-btn').addEventListener('click',async()=>{{
         document.getElementById('a-brightness-threshold').value=s.brightness_threshold||30;
         document.getElementById('a-expected-format').value=s.expected_format||'auto';
         document.getElementById('a-ollama-url').value=s.ollama_url||'';
-        document.getElementById('a-ollama-model').value=s.ollama_model||'minicpm-v4.6:latest';
+        document.getElementById('a-ollama-model').value=s.ollama_model||'lfm3-vl:latest';
     }}catch(e){{
         document.getElementById('updated').textContent='Could not load admin settings: '+e.message;
     }}
@@ -810,7 +810,7 @@ def make_handler(
             )
             with settings_lock:
                 _url = str(current_settings.get("ollama_url", ""))
-                _model = str(current_settings.get("ollama_model", "minicpm-v4.6:latest"))
+                _model = str(current_settings.get("ollama_model", "lfm3-vl:latest"))
             reading, _ = read_display(
                 crop_display(image, located),
                 _url,
@@ -1201,7 +1201,7 @@ def make_handler(
                     "brightness_threshold": int(payload.get("brightness_threshold", 30)),
                     "expected_format": str(payload.get("expected_format", "auto")),
                     "ollama_url": str(payload.get("ollama_url", "")).strip(),
-                    "ollama_model": str(payload.get("ollama_model", "minicpm-v4.6:latest")).strip(),
+                    "ollama_model": str(payload.get("ollama_model", "lfm3-vl:latest")).strip(),
                 }
                 _validate_admin_settings(saved)
                 with settings_lock:
@@ -1374,7 +1374,7 @@ def serve(settings: ViewerSettings | None = None) -> None:
                 )
                 with settings_lock:
                     _url = str(reader_settings.get("ollama_url", ""))
-                    _model = str(reader_settings.get("ollama_model", "minicpm-v4.6:latest"))
+                    _model = str(reader_settings.get("ollama_model", "lfm3-vl:latest"))
                 reading, ocr_processed = read_display(
                     display_crop,
                     _url,

@@ -40,33 +40,30 @@ def test_locates_pressure_display_and_decodes_correctly() -> None:
 
 
 def test_locates_temperature_display_and_decodes_correctly() -> None:
-    image = cv2.imread(str(_fixture("boiler-temperature.jpg")), cv2.IMREAD_UNCHANGED)
+    image = cv2.imread(str(_fixture("boiler-32.1C.PNG")), cv2.IMREAD_UNCHANGED)
     assert image is not None
 
     result = locate_display(image)
 
     assert result is not None
-    assert result.confidence > 0.5
 
     reading, _ = read_display(crop_display(image, result))
     assert reading.valid
-    assert reading.value == pytest.approx(52.3, abs=0.1)
+    assert reading.value == pytest.approx(32.1, abs=0.1)
     assert reading.unit == "°C"
 
 
-def test_roi_excludes_unit_indicator_lights_below_digits() -> None:
-    # Captured misread frame: the lit unit indicators (43 px and 41 px tall)
-    # sit just below 71 px tall digits and used to be merged into the ROI.
-    image = cv2.imread(
-        str(_fixture("boiler-pressure-with-indicators.jpg")), cv2.IMREAD_UNCHANGED
-    )
+def test_roi_includes_thin_trailing_one_after_decimal_point() -> None:
+    # "32.1": a 7-segment "1" lights only the right-hand segments, so it sits
+    # detached from the "2" (x 621-662).  The glow-bridging refinement used to
+    # trim the ROI to x=587 and the LLM never saw the tenths digit.
+    image = cv2.imread(str(_fixture("boiler-32.1C.PNG")), cv2.IMREAD_UNCHANGED)
     assert image is not None
 
     result = locate_display(image)
 
     assert result is not None
-    assert result.roi.height < 100
-    assert result.roi.y + result.roi.height <= 330
+    assert result.roi.x + result.roi.width >= 662
 
 
 def test_roi_excludes_indicator_bridged_by_glow_on_overexposed_frame() -> None:

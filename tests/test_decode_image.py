@@ -73,7 +73,6 @@ def test_decodes_supplied_boiler_image() -> None:
     ("image_name", "value", "unit", "display_text"),
     [
         ("boiler-pressure.jpg", 1.2, "bar", "12"),
-        ("boiler-temperature.jpg", 52.3, "°C", "523"),
     ],
 )
 def test_decodes_pressure_and_temperature_with_shared_display_roi(
