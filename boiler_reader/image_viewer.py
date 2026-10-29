@@ -1308,16 +1308,6 @@ def serve(settings: ViewerSettings | None = None) -> None:
             webhook_delivery_lock,
         )
 
-    def save_error_frame(frame: np.ndarray, label: str, processed: np.ndarray | None = None) -> None:
-        ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-        folder = settings.image_path.parent / "screenshots"
-        folder.mkdir(parents=True, exist_ok=True)
-        cv2.imwrite(str(folder / f"{ts}_{label}.jpg"), frame)
-        if processed is not None:
-            cv2.imwrite(str(folder / f"{ts}_{label}_ocr.jpg"), processed)
-
-    last_reading_state: list[tuple[float | None, str | None]] = [None, None]
-
     def observe_frame(frame: np.ndarray | None, error: str | None) -> None:
         if frame is not None and error is None:
             activity.set(ANALYZING)
@@ -1345,7 +1335,6 @@ def serve(settings: ViewerSettings | None = None) -> None:
         if not _ollama_url:
             return
         # Decode the new frame and cache the result.
-        ocr_processed: np.ndarray | None = None
         display_crop: np.ndarray | None = None
         try:
             roi = active_roi[0]
@@ -1354,7 +1343,6 @@ def serve(settings: ViewerSettings | None = None) -> None:
                     bt = int(reader_settings["brightness_threshold"])
                 located = locate_display(frame, bt)
                 if located is None:
-                    save_error_frame(frame, "ERROR")
                     send_for_issue(
                         "error",
                         {
@@ -1375,7 +1363,7 @@ def serve(settings: ViewerSettings | None = None) -> None:
                 with settings_lock:
                     _url = str(reader_settings.get("ollama_url", ""))
                     _model = str(reader_settings.get("ollama_model", "lfm3-vl:latest"))
-                reading, ocr_processed = read_display(
+                reading, _ = read_display(
                     display_crop,
                     _url,
                     _model,
@@ -1386,7 +1374,6 @@ def serve(settings: ViewerSettings | None = None) -> None:
                 reading = decode_frame(frame, _decoder_config(settings, roi))
                 effective_roi = roi
         except ValueError:
-            save_error_frame(frame, "ERROR")
             send_for_issue(
                 "error",
                 {
@@ -1404,31 +1391,14 @@ def serve(settings: ViewerSettings | None = None) -> None:
             high_threshold = float(reader_settings["high_threshold"])
         if not reading.valid:
             issue = "error"
-            save_error_frame(frame, "ERROR", ocr_processed)
         elif reading.unit == "°C":
             issue = None
         elif reading.value is not None and reading.value < low_threshold:
             issue = "low_pressure"
-            save_error_frame(frame, "LOW", ocr_processed)
         elif reading.value is not None and reading.value > high_threshold:
             issue = "error"
-            save_error_frame(frame, "HIGH", ocr_processed)
         else:
             issue = None
-        # Detect suspicious valid readings: implausible jump in value.
-        if reading.valid and reading.unit == "bar" and reading.value is not None:
-            last_value, last_unit = last_reading_state
-            value_jump_too_large = (
-                last_value is not None
-                and last_unit == "bar"
-                and abs(reading.value - last_value) > 1.5
-            )
-            if value_jump_too_large:
-                save_error_frame(frame, "JUMP", ocr_processed)
-        # Update last reading for next frame's delta comparison.
-        if reading.valid:
-            last_reading_state[0] = reading.value
-            last_reading_state[1] = reading.unit
         send_for_issue(
             issue,
             {
