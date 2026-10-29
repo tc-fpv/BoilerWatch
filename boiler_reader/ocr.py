@@ -38,6 +38,24 @@ _PROMPT = (
 )
 
 
+_ONE_LOOKALIKES = ":!|lIi"
+_DIGITS_AND_LOOKALIKES = re.compile(r"[\d.\s" + re.escape(_ONE_LOOKALIKES) + r"]+")
+
+
+def _normalise_lookalike_ones(raw: str) -> str:
+    """Read ``:``/``!``/``|``/``l``/``I`` as the digit 1 in a bare digit reply.
+
+    A seven-segment 1 lights only the right-hand segments, so beside its
+    decimal point it looks like ``!`` or ``:`` and the model returns e.g. ``:1``
+    for 1.1.  Applied only when the whole reply is digits plus lookalikes, so
+    explanation text and letter codes (ECS, FIL) are left untouched.
+    """
+    text = raw.strip()
+    if not (_DIGITS_AND_LOOKALIKES.fullmatch(text) and any(c.isdigit() for c in text)):
+        return raw
+    return re.sub("[" + re.escape(_ONE_LOOKALIKES) + "]", "1", text)
+
+
 def _preprocess_crop_for_llm(crop: np.ndarray) -> np.ndarray:
     """Grayscale + 4x upscale, bright segments on dark background.
 
@@ -93,6 +111,7 @@ def _ask_ollama(
     raw = result["response"]
     # Strip any <think>...</think> block the model emits despite think:False.
     raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
+    raw = _normalise_lookalike_ones(raw)
     # Extract the first run of 2-3 digits from the response — the model often
     # adds explanation text despite being told not to.
     m = re.search(r"\b(\d{2,3})\b", raw)
