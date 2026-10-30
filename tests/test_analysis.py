@@ -105,3 +105,82 @@ def test_unreachable_llm_alerts_as_llm_unavailable_not_a_display_fault(tmp_path)
     assert first["issue"] == "error" and first["error"] == "No reply from the LLM server"
     assert requests[0]["status"] == "llm_unavailable"
     assert len(requests) == 1
+
+
+class _ScriptedReader:
+    """Returns the scripted confidences in order, then repeats the last."""
+
+    def __init__(self, confidences):
+        self.confidences = list(confidences)
+        self.reads = 0
+
+    def read(self, image):
+        from boiler_reader.decoder import ROI, Reading
+
+        confidence = self.confidences[min(self.reads, len(self.confidences) - 1)]
+        self.reads += 1
+        reading = Reading(
+            value=1.2 if confidence else None,
+            valid=bool(confidence),
+            raw_pattern="12",
+            confidence=confidence,
+            display_text="12",
+            error_code=None,
+            unit="bar" if confidence else None,
+        )
+        return reading, ROI(0, 0, 10, 10)
+
+
+class _FakePoller:
+    def __init__(self, frame):
+        self.frame = frame
+        self.regrabs = 0
+
+    def recapture(self):
+        self.regrabs += 1
+        return self.frame
+
+
+def _analyze_with(tmp_path, confidences):
+    state, requests, clock = _state(tmp_path)
+    state.reader_settings["ollama_url"] = "http://llm"
+    image = cv2.imread(str(FIXTURE))
+    state.camera_poller = _FakePoller(image)
+    reader = _ScriptedReader(confidences)
+    analyzer = FrameAnalyzer(state, reader=reader)
+    analyzer.analyze_captured(image, None)
+    return state, reader, state.camera_poller
+
+
+def test_zero_confidence_regrabs_and_reads_again(tmp_path) -> None:
+    state, reader, poller = _analyze_with(tmp_path, [0.0, 1.0])
+
+    assert reader.reads == 2 and poller.regrabs == 1
+    assert state.get_cached_reading()["valid"] is True
+
+
+def test_three_zero_confidence_rounds_are_declared_an_error(tmp_path) -> None:
+    state, reader, poller = _analyze_with(tmp_path, [0.0])
+
+    assert reader.reads == 3 and poller.regrabs == 2
+    assert state.get_cached_reading()["issue"] == "error"
+
+
+def test_nonzero_confidence_is_not_retried(tmp_path) -> None:
+    state, reader, poller = _analyze_with(tmp_path, [0.5])
+
+    assert reader.reads == 1 and poller.regrabs == 0
+
+
+def test_failed_regrab_stops_retrying_and_uses_the_last_reading(tmp_path) -> None:
+    state, requests, clock = _state(tmp_path)
+    state.reader_settings["ollama_url"] = "http://llm"
+    image = cv2.imread(str(FIXTURE))
+    poller = _FakePoller(None)
+    state.camera_poller = poller
+    reader = _ScriptedReader([0.0])
+
+    FrameAnalyzer(state, reader=reader).analyze_captured(image, None)
+
+    assert reader.reads == 1 and poller.regrabs == 1
+    assert state.get_cached_reading()["issue"] == "error"

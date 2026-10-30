@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import asdict
 from pathlib import Path
 from threading import Lock
@@ -13,10 +14,16 @@ import numpy as np
 
 from boiler_reader.activity import ANALYZING, IDLE, ActivityTracker
 from boiler_reader.alert_delay import AlertDelayTracker, DelayStatus
+from boiler_reader.camera import CameraPoller
 from boiler_reader.decoder import ROI, Reading
 from boiler_reader.ocr import LLMUnavailableError
 from boiler_reader.reader import DisplayReader, LiveDisplayReader, ReaderState
 from boiler_reader.webhook import HomeAssistantWebhookNotifier
+
+
+# A reading with no confidence at all is retried on a fresh frame; only after this many
+# rounds in a row is it left to be declared an error.
+MAX_READ_ROUNDS = 3
 
 
 class AnalyzerState(ReaderState, Protocol):
@@ -27,6 +34,7 @@ class AnalyzerState(ReaderState, Protocol):
     delivery_lock: Lock
     activity: ActivityTracker
     llm_image: bytes | None
+    camera_poller: CameraPoller | None
 
     def set_cached_reading(self, reading: dict[str, object] | None) -> None: ...
 
@@ -221,6 +229,29 @@ class FrameAnalyzer:
         finally:
             state.activity.set(IDLE)
 
+    def _read_with_retries(
+        self, frame: np.ndarray
+    ) -> tuple[tuple[Reading, ROI] | None, np.ndarray]:
+        """Read the frame, grabbing and reading again while the confidence is 0.0.
+
+        Returns the last read and the frame it came from.  Only called from the camera
+        callback, where the poller's capture lock is already held.
+        """
+        read = self.reader.read(frame)
+        for attempt in range(1, MAX_READ_ROUNDS):
+            if read is None or read[0].confidence > 0.0:
+                break
+            poller = self.state.camera_poller
+            fresh = poller.recapture() if poller is not None else None
+            if fresh is None:
+                break
+            logging.getLogger("boiler_reader.analysis").info(
+                json.dumps({"event": "read_retry", "round": attempt + 1}, separators=(",", ":"))
+            )
+            frame = fresh
+            read = self.reader.read(frame)
+        return read, frame
+
     def _analyze_captured(self, frame: np.ndarray | None, error: str | None) -> None:
         state = self.state
         if frame is None or error is not None:
@@ -230,7 +261,7 @@ class FrameAnalyzer:
             if not str(state.reader_settings.get("ollama_url", "")).strip():
                 return
         try:
-            read = self.reader.read(frame)
+            read, frame = self._read_with_retries(frame)
         except ValueError:
             self.fail("invalid", "Gauge frame could not be decoded")
             return

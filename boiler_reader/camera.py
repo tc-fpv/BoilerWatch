@@ -127,20 +127,34 @@ class CameraPoller:
                 if self.on_grab_state is not None:
                     self.on_grab_state(False)
 
+    def _grab_and_store(self) -> np.ndarray:
+        """Grab a frame and save it as the latest image; raises if either step fails."""
+        frame = self.capture_fn()
+        if frame is None or not isinstance(frame, np.ndarray) or frame.size == 0:
+            raise RuntimeError("RTSP camera did not return a frame")
+        extension = self.image_path.suffix.lower() or ".jpg"
+        encoded_ok, encoded = cv2.imencode(extension, frame)
+        if not encoded_ok:
+            raise RuntimeError("Could not encode the camera frame")
+        self.image_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path = self.image_path.with_suffix(self.image_path.suffix + ".tmp")
+        temporary_path.write_bytes(encoded.tobytes())
+        temporary_path.replace(self.image_path)
+        self._write_status(available=True)
+        return frame
+
+    def recapture(self) -> np.ndarray | None:
+        """Grab a replacement frame from inside an on_frame callback (the capture lock is
+        already held).  Returns None, leaving the previous frame in place, if the grab fails."""
+        try:
+            return self._grab_and_store()
+        except Exception as error:
+            self.logger("camera_regrab_failed", error=self._redact(str(error)))
+            return None
+
     def _capture_once(self) -> bool:
         try:
-            frame = self.capture_fn()
-            if frame is None or not isinstance(frame, np.ndarray) or frame.size == 0:
-                raise RuntimeError("RTSP camera did not return a frame")
-            extension = self.image_path.suffix.lower() or ".jpg"
-            encoded_ok, encoded = cv2.imencode(extension, frame)
-            if not encoded_ok:
-                raise RuntimeError("Could not encode the camera frame")
-            self.image_path.parent.mkdir(parents=True, exist_ok=True)
-            temporary_path = self.image_path.with_suffix(self.image_path.suffix + ".tmp")
-            temporary_path.write_bytes(encoded.tobytes())
-            temporary_path.replace(self.image_path)
-            self._write_status(available=True)
+            frame = self._grab_and_store()
         except Exception as error:
             self._clear_latest_frame()
             message = self._redact(str(error))
