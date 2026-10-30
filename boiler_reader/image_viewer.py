@@ -444,12 +444,16 @@ let saving=false;
 let phase='idle';
 let llmImageVersion=null;
 let flashValuePending=false;
+let llmFlashPending=false;
 const llmImage=document.getElementById('llm-image');
 llmImage.onload=()=>{{
     llmImage.hidden=false;
-    llmImage.classList.remove('flash');void llmImage.offsetWidth;llmImage.classList.add('flash');
+    if(llmFlashPending){{
+        llmFlashPending=false;
+        llmImage.classList.remove('flash');void llmImage.offsetWidth;llmImage.classList.add('flash');
+    }}
 }};
-llmImage.onerror=()=>{{llmImage.hidden=true;}};
+llmImage.onerror=()=>{{llmImage.hidden=true;llmFlashPending=false;}};
 let roiResult=null;
 function applyRoiState(){{
     roiBox.classList.toggle('analyzing',phase==='analyzing');
@@ -470,6 +474,8 @@ async function pollActivity(){{
         if(activity.llm_image!==llmImageVersion){{
             const first=llmImageVersion===null;
             llmImageVersion=activity.llm_image;
+            // The first poll after opening the page only loads the existing image.
+            if(!first)llmFlashPending=true;
             if(!first||activity.llm_image>0)llmImage.src='/llm-image.jpg?t='+Date.now();
         }}
         applyRoiState();
