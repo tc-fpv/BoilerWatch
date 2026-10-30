@@ -49,7 +49,7 @@ async function pollActivity(){
             const first=llmImageVersion===null;
             llmImageVersion=activity.llm_image;
             // The first poll after opening the page only loads the existing image.
-            if(!first)llmFlashPending=true;
+            if(!first){llmFlashPending=true;clearReplies();}
             if(!first||activity.llm_image>0)llmImage.src='/llm-image.jpg?t='+Date.now();
         }
         applyRoiState();
@@ -96,7 +96,10 @@ function showReading(reading){
     if(reading.camera)showLastGrabbed(reading.camera);
     drawRoi();
 }
+function clearReplies(){document.getElementById('llm-replies').replaceChildren();}
+// The replies belong to the final reading, so they stay hidden while the LLM is still working.
 function showReplies(reading){
+    if(phase==='analyzing')return;
     const list=document.getElementById('llm-replies');
     list.replaceChildren();
     (reading.llm_replies||[]).forEach(reply=>{
