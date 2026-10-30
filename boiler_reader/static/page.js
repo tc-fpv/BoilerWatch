@@ -84,6 +84,7 @@ function showReading(reading){
     document.getElementById('unit').hidden=!valid;
     document.getElementById('display').textContent=reading.display_text||'--';
     document.getElementById('error-code').textContent=reading.error_code||'--';
+    showReplies(reading);
     const delay=reading.delay;
     document.getElementById('issue-delay').textContent=delay&&delay.issue
         ?(delay.issue==='low_pressure'?'Low pressure: ':'Error: ')+(delay.eligible?'ready':delay.remaining_seconds+'s remaining')
@@ -94,6 +95,16 @@ function showReading(reading){
     document.getElementById('updated').textContent=BOILER.buildLabel;
     if(reading.camera)showLastGrabbed(reading.camera);
     drawRoi();
+}
+function showReplies(reading){
+    const list=document.getElementById('llm-replies');
+    list.replaceChildren();
+    (reading.llm_replies||[]).forEach(reply=>{
+        const item=document.createElement('li');
+        item.textContent=reply;
+        if(reply===reading.raw_pattern)item.className='win';
+        list.appendChild(item);
+    });
 }
 function showLastGrabbed(camera){
     const lastGrabbed=document.getElementById('last-grabbed');
@@ -243,7 +254,70 @@ document.getElementById('admin-btn').addEventListener('click',async()=>{
 document.querySelectorAll('details.grp').forEach(d=>d.addEventListener('toggle',()=>{
     if(d.open)document.querySelectorAll('details.grp').forEach(o=>{if(o!==d)o.open=false;});
 }));
-function closeAdmin(){const o=document.getElementById('admin-overlay');o.hidden=true;o.style.display='none';}
+let logLast=0;
+let logTimer=null;
+let logEntries=[];
+function logLine(entry){
+    let text=entry.message;
+    let bad=entry.level==='ERROR'||entry.level==='WARNING';
+    try{
+        const data=JSON.parse(entry.message);
+        const {event,...rest}=data;
+        text=event+Object.entries(rest).map(([k,v])=>' '+k+'='+(typeof v==='string'?v:JSON.stringify(v))).join('');
+        if(/fail|error|unavailable/.test(event))bad=true;
+    }catch(e){}
+    return {time:entry.time.slice(11,19),text,bad};
+}
+function renderLog(){
+    const box=document.getElementById('log-lines');
+    const errorsOnly=document.getElementById('log-errors-only').checked;
+    const stick=box.scrollTop+box.clientHeight>=box.scrollHeight-20;
+    box.replaceChildren();
+    logEntries.filter(e=>!errorsOnly||e.bad).forEach(e=>{
+        const row=document.createElement('div');
+        if(e.bad)row.className='bad';
+        const time=document.createElement('span');
+        time.className='t';time.textContent=e.time+' ';
+        row.append(time,e.text);
+        box.appendChild(row);
+    });
+    if(stick)box.scrollTop=box.scrollHeight;
+}
+async function pollLog(){
+    try{
+        const response=await fetch('/log.json?since='+logLast,{cache:'no-store'});
+        const data=await response.json();
+        if(data.last<logLast){logLast=0;logEntries=[];}
+        if(data.entries.length){
+            logEntries=logEntries.concat(data.entries.map(logLine)).slice(-500);
+            renderLog();
+        }
+        logLast=data.last;
+    }catch(e){}
+}
+function showTab(name){
+    document.querySelectorAll('button.tab').forEach(t=>t.classList.toggle('on',t.dataset.tab===name));
+    document.getElementById('settings-pane').hidden=name!=='settings';
+    document.getElementById('settings-pane').style.display=name==='settings'?'flex':'none';
+    document.getElementById('log-pane').hidden=name!=='log';
+    clearInterval(logTimer);logTimer=null;
+    if(name==='log'){
+        pollLog();
+        logTimer=setInterval(pollLog,2000);
+        const box=document.getElementById('log-lines');
+        box.scrollTop=box.scrollHeight;
+    }
+}
+document.querySelectorAll('button.tab').forEach(t=>t.addEventListener('click',()=>showTab(t.dataset.tab)));
+document.getElementById('log-errors-only').addEventListener('change',renderLog);
+document.getElementById('log-copy').addEventListener('click',async event=>{
+    const button=event.currentTarget;
+    const text=Array.from(document.getElementById('log-lines').children).map(r=>r.textContent).join('\n');
+    try{await navigator.clipboard.writeText(text);button.textContent='Copied';}
+    catch(e){button.textContent='Copy failed';}
+    setTimeout(()=>{button.textContent='Copy';},2000);
+});
+function closeAdmin(){const o=document.getElementById('admin-overlay');o.hidden=true;o.style.display='none';showTab('settings');}
 document.addEventListener('click',e=>{const o=document.getElementById('admin-overlay');if(o&&e.target===o)closeAdmin();});
 document.addEventListener('keydown',e=>{const o=document.getElementById('admin-overlay');if(e.key==='Escape'&&o&&!o.hidden)closeAdmin();});
 document.addEventListener('click',e=>{if(e.target&&e.target.id==='admin-close')closeAdmin();});

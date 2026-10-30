@@ -24,6 +24,7 @@ def serve(settings: ViewerSettings | None = None) -> None:
             "ha_webhook_timeout": settings.ha_webhook_timeout,
         }),
     )
+    logging.getLogger().addHandler(state.log_buffer)
     analyzer = FrameAnalyzer(state)
     camera = CameraService(
         settings.image_path,

@@ -475,3 +475,28 @@ def test_activity_endpoint_reports_idle_phase(tmp_path) -> None:
         server.shutdown()
         server.server_close()
         thread.join()
+
+
+def test_log_endpoint_serves_buffered_lines(tmp_path) -> None:
+    import logging
+
+    settings = ViewerSettings(image_path=tmp_path / "latest.jpg", roi=ROI(0, 0, 50, 50))
+    state = AppState(settings)
+    logger = logging.getLogger("test_log_endpoint")
+    logger.setLevel(logging.INFO)
+    logger.addHandler(state.log_buffer)
+    logger.info("hello from the log")
+    server = ThreadingHTTPServer(("127.0.0.1", 0), create_app(state))
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        body = json.loads(urlopen(f"http://127.0.0.1:{server.server_port}/log.json?since=0").read())
+        later = json.loads(urlopen(f"http://127.0.0.1:{server.server_port}/log.json?since={body['last']}").read())
+
+        assert [e["message"] for e in body["entries"]] == ["hello from the log"]
+        assert later["entries"] == []
+    finally:
+        logger.removeHandler(state.log_buffer)
+        server.shutdown()
+        server.server_close()
+        thread.join()

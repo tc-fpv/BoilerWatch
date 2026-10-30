@@ -98,3 +98,26 @@ def test_save_mismatch_validates_then_reports_a_missing_frame(tmp_path) -> None:
     with pytest.raises(ValueError, match="unit"):
         save_mismatch(settings, None, {"value": "12", "unit": "psi"})
     assert save_mismatch(settings, None, {"value": "12", "unit": "bar"}) is None
+
+
+def test_log_buffer_returns_only_entries_after_the_given_id() -> None:
+    import logging
+
+    from boiler_reader.log_buffer import LogBuffer
+
+    buffer = LogBuffer(capacity=2)
+    logger = logging.getLogger("test_log_buffer")
+    logger.setLevel(logging.INFO)
+    logger.addHandler(buffer)
+    try:
+        for text in ("one", "two", "three"):
+            logger.info(text)
+    finally:
+        logger.removeHandler(buffer)
+
+    everything = buffer.entries_since(0)
+    newer = buffer.entries_since(2)
+
+    assert [e["message"] for e in everything["entries"]] == ["two", "three"]
+    assert everything["last"] == 3
+    assert [e["message"] for e in newer["entries"]] == ["three"]

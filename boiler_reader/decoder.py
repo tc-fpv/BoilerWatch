@@ -49,6 +49,8 @@ class Reading:
     display_text: str | None = None
     error_code: str | None = None
     unit: str | None = None
+    # The raw replies the LLM gave for this reading, when it was read by an LLM.
+    llm_replies: tuple[str, ...] = ()
 
 
 SEGMENT_ZONES: Final[dict[str, tuple[float, float, float, float]]] = {

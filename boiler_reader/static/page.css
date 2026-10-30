@@ -49,3 +49,22 @@ details.grp>summary{padding:10px 0;color:#9bad9f;font-size:11px;letter-spacing:1
 details.grp[open]>summary{padding-bottom:6px}
 details.grp>div{padding-bottom:12px}
 #admin-overlay:not([hidden]){display:flex}
+
+.llm-row{display:flex;align-items:flex-start;gap:10px}
+#llm-image{flex:0 1 auto;max-width:60%}
+#llm-replies{list-style:none;margin:0;padding:0;display:grid;gap:3px;font-size:12px;color:#718077}
+#llm-replies li.win{color:#bde2c7}
+#llm-replies li::before{content:"";display:inline-block;width:7px;height:7px;margin-right:6px;background:#526258}
+#llm-replies li.win::before{background:#2ecc71}
+#admin-tabs{display:flex;gap:4px}
+button.tab{background:none;border:none;border-bottom:2px solid transparent;color:#829187;font:inherit;font-size:13px;font-weight:600;letter-spacing:1px;padding:0 10px 4px 0;cursor:pointer}
+button.tab.on{color:#9bad9f;border-bottom-color:#ff7a35}
+#log-pane:not([hidden]){display:flex;flex-direction:column;gap:10px}
+#log-tools{display:flex;justify-content:space-between;align-items:center;gap:10px}
+#log-tools .action{width:auto}
+label.check{display:flex;align-items:center;gap:6px;grid-template-columns:none}
+label.check input{width:auto}
+#log-lines{height:50vh;overflow:auto;background:#0f1512;border:1px solid #35433a;padding:8px;font-size:11px;line-height:1.5}
+#log-lines div{white-space:pre-wrap;overflow-wrap:anywhere;color:#bac8be}
+#log-lines div.bad{color:#f0b2a4}
+#log-lines .t{color:#718077}

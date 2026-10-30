@@ -23,7 +23,8 @@
 </form></div></div>
 <div id="admin-overlay" hidden style="position:fixed;inset:0;background:rgba(0,0,0,.7);align-items:center;justify-content:center;z-index:100">
 <div style="background:#17201c;border:1px solid #35433a;padding:28px 24px;width:min(480px,95vw);max-height:90vh;overflow-y:auto;display:flex;flex-direction:column;gap:16px">
-<div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0;color:#9bad9f;font-size:13px;font-weight:600;letter-spacing:1px">SETTINGS</h2><button id="admin-close" type="button" style="background:none;border:none;color:#829187;font-size:18px;cursor:pointer;padding:0 4px">&#x2715;</button></div>
+<div style="display:flex;justify-content:space-between;align-items:center"><div id="admin-tabs" role="tablist"><button type="button" role="tab" class="tab on" data-tab="settings">SETTINGS</button><button type="button" role="tab" class="tab" data-tab="log">LOG</button></div><button id="admin-close" type="button" style="background:none;border:none;color:#829187;font-size:18px;cursor:pointer;padding:0 4px">&#x2715;</button></div>
+<div id="settings-pane" style="display:flex;flex-direction:column;gap:16px">
 <form id="admin-form" style="display:grid;gap:10px">
 <p style="margin:0;font-size:11px;color:#829187">Changes take effect immediately. RTSP settings restart the camera connection.</p>
 <details class="grp" name="settings"><summary>CAMERA</summary>
@@ -57,11 +58,12 @@
 </div></details>
 <button id="admin-save" type="submit" style="justify-self:start;padding:8px 16px;border:1px solid #829987;background:#26372e;color:#edf4ee;font:inherit;cursor:pointer">Save</button>
 </form>
-<button class="action" id="send-test-webhook" type="button">Send test HA message</button></div></div>
+<button class="action" id="send-test-webhook" type="button">Send test HA message</button></div>
+<div id="log-pane" hidden><div id="log-tools"><label class="check"><input type="checkbox" id="log-errors-only"> Errors only</label><button class="action" id="log-copy" type="button">Copy</button></div><div id="log-lines"></div></div></div></div>
 <main><div id="stage"><img id="frame" src="/last.jpg" alt="Latest camera frame with ROI"><div id="roi-box" title="Drag to move ROI"><button id="resize-handle" type="button" title="Drag to resize ROI" aria-label="Resize ROI"></button></div><div id="grab-dot" title="Grabbing frame"></div></div></main>
 <aside><h1 id="admin-btn" title="Settings" role="button" tabindex="0"><img id="logo" src="/logo.png" alt="BoilerWatch"><img id="logo-text" src="/logo-text.png" alt="BoilerWatch"></h1><div class="reading"><span id="value">--</span><span id="unit">bar</span></div>
 <div id="status">WAITING</div>
-<img id="llm-image" alt="Processed image sent to the LLM" hidden>
+<div class="llm-row"><img id="llm-image" alt="Processed image sent to the LLM" hidden><ul id="llm-replies" title="LLM replies behind this reading"></ul></div>
 <dl><dt>Display</dt><dd id="display">--</dd>
 <dt>Error code</dt><dd id="error-code">--</dd>
 <dt>Issue timer</dt><dd id="issue-delay">No active issue</dd></dl>

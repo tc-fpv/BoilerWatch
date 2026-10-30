@@ -156,3 +156,11 @@ def test_every_request_failing_raises_llm_unavailable(
 
     with pytest.raises(ocr.LLMUnavailableError):
         read_display(crop, "http://unused")
+
+
+def test_reading_keeps_every_llm_reply(monkeypatch: pytest.MonkeyPatch, crop: np.ndarray) -> None:
+    _fake_replies(monkeypatch, ["11", "21", "11", "11"])
+
+    reading, _ = read_display(crop, "http://unused")
+
+    assert reading.llm_replies == ("11", "21", "11", "11")

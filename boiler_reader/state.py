@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from boiler_reader.activity import ActivityTracker
 from boiler_reader.alert_delay import AlertDelayTracker
 from boiler_reader.decoder import ROI
+from boiler_reader.log_buffer import LogBuffer
 from boiler_reader.webhook import HomeAssistantWebhookNotifier
 
 if TYPE_CHECKING:
@@ -59,6 +60,8 @@ class AppState:
         self.decode_lock = Lock()
         # The JPEG of the preprocessed image most recently sent to the LLM.
         self.llm_image: bytes | None = None
+        # Recent log lines for the UI; attach it to the logging module to fill it.
+        self.log_buffer = LogBuffer()
         self._roi: ROI | None = settings.roi
         self._roi_lock = RLock()
         self._cached_reading: dict[str, object] | None = None

@@ -196,6 +196,10 @@ def create_app(
     def camera_status_json() -> Response:
         return _json(200, camera_status(state.settings.image_path))
 
+    @app.get("/log.json")
+    def log(since: int = 0) -> Response:
+        return _json(200, state.log_buffer.entries_since(since))
+
     @app.get("/llm-image.jpg")
     def llm_image() -> Response:
         body = state.llm_image

@@ -311,6 +311,8 @@ def read_display(
         if not reading.valid:
             reading = dataclasses.replace(reading, confidence=0.0)
 
+    reading = dataclasses.replace(reading, llm_replies=tuple(reads))
+
     _log(
         "ocr_result",
         reads=reads,
