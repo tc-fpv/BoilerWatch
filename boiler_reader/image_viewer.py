@@ -89,6 +89,14 @@ _SETTINGS_DEFAULTS: dict[str, object] = {
 }
 
 
+_STATIC_DIR = Path(__file__).with_name("static")
+_STATIC_IMAGES = {
+    "/logo.png": "logo.png",
+    "/logo-text.png": "logo-text.png",
+    "/favicon.png": "favicon.png",
+}
+
+
 def _parse_box(value: str) -> DigitBox:
     parts = tuple(int(part.strip()) for part in value.split(","))
     if len(parts) != 4:
@@ -317,7 +325,7 @@ def _page(refresh_seconds: int) -> bytes:
     build_label = f"Build {_build_commit()}"
     html = f"""<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="icon" href="data:,">
+<link rel="icon" type="image/png" href="/favicon.png">
 <title>BoilerWatch</title>
 <style>
 :root{{color-scheme:dark;font-family:Consolas,'Courier New',monospace;background:#101514;color:#e8efeb}}
@@ -326,8 +334,8 @@ html,body{{width:100%;height:100%;margin:0;overflow:hidden}}
 body{{display:flex;background:#101514}}
 main{{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;background:#080b0a;padding:16px}}
 #stage{{position:relative;display:inline-block;max-width:100%;max-height:100%}}
-#frame{{display:block;max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain}}
-@media(max-width:700px){{html,body{{height:auto;overflow:auto}}body{{flex-direction:column}}main{{min-height:0;padding:10px}}aside{{flex:0 0 auto;width:100%;padding:14px 18px;gap:10px;border-left:0;border-top:1px solid #35433a}}.reading{{min-height:48px}}#value{{font-size:38px}}dl{{grid-template-columns:1fr 1fr}}dt{{margin-top:3px}}time{{margin-top:4px}}}}
+#frame{{cursor:pointer;display:block;max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain}}
+@media(max-width:700px){{html,body{{height:auto;overflow:auto}}body{{flex-direction:column}}main{{min-height:0;padding:10px}}aside{{flex:0 0 auto;width:100%;padding:14px 18px;gap:10px;border-left:0;border-top:1px solid #35433a}}.reading{{min-height:60px}}h1 #logo{{display:none}}h1 #logo-text{{display:block}}#value{{font-size:47.5px}}dl{{grid-template-columns:1fr 1fr}}dt{{margin-top:3px}}time{{margin-top:4px}}}}
 #roi-box{{position:absolute;border:2px solid #ff7a35;cursor:move;touch-action:none;min-width:8px;min-height:8px}}
 #resize-handle{{position:absolute;right:-7px;bottom:-7px;width:14px;height:14px;padding:0;border:2px solid #101514;background:#ff7a35;cursor:nwse-resize;touch-action:none}}
 #roi-box.ok{{border-color:#2ecc71}}#roi-box.ok #resize-handle{{background:#2ecc71}}
@@ -338,17 +346,20 @@ main{{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;
 #grab-dot.on{{visibility:visible;animation:grab-flash .5s steps(1) infinite}}
 @keyframes grab-flash{{0%{{opacity:1}}50%{{opacity:0}}}}
 aside{{flex:0 0 310px;padding:28px 24px;background:#17201c;border-left:1px solid #35433a;display:flex;flex-direction:column;gap:22px}}
-h1{{margin:0;color:#9bad9f;font-size:12px;font-weight:600;letter-spacing:1px}}
-.reading{{display:flex;align-items:baseline;gap:10px;min-height:66px}}
-#value{{font-size:52px;line-height:1;color:#f1f6f2}}
+h1{{margin:0;line-height:0;align-self:center}}
+#logo{{display:block;width:170px;max-width:100%;height:auto;margin:0 auto}}
+#logo-text{{display:none;width:200px;max-width:100%;height:auto;margin:0 auto}}
+.reading{{display:flex;align-items:baseline;justify-content:center;gap:10px;min-height:82px}}
+#value{{font-size:65px;line-height:1;color:#f1f6f2}}
 @keyframes value-flash{{0%,100%{{opacity:1}}50%{{opacity:.1}}}}
 #value.flash{{animation:value-flash .4s ease-in-out 2}}
+h1#admin-btn{{cursor:pointer}}
 #unit{{font-size:15px;color:#9bad9f}}
 #status{{align-self:flex-start;border:1px solid #668875;color:#bde2c7;padding:6px 9px;font-size:12px}}
 #status.invalid{{border-color:#b77568;color:#f0b2a4}}
 @keyframes llm-flash{{0%,100%{{border-color:#35433a;box-shadow:0 0 0 rgba(144,238,144,0)}}50%{{border-color:#90ee90;box-shadow:0 0 10px rgba(144,238,144,.6)}}}}
 #llm-image.flash{{animation:llm-flash .8s ease-in-out 2}}
-#llm-image{{display:block;max-width:100%;max-height:90px;object-fit:contain;align-self:flex-start;border:1px solid #35433a;background:#000}}
+#llm-image{{cursor:pointer;display:block;max-width:100%;max-height:90px;object-fit:contain;align-self:flex-start;border:1px solid #35433a;background:#000}}
 dl{{margin:0;display:grid;grid-template-columns:1fr;gap:7px}}
 dt{{margin-top:9px;color:#829187;font-size:11px;text-transform:uppercase}}
 dd{{margin:0;overflow-wrap:anywhere;font-size:14px;color:#e0e9e3}}
@@ -363,6 +374,10 @@ button.save:disabled{{opacity:.6;cursor:wait}}
 button.action{{width:100%;padding:8px 10px;border:1px solid #526258;background:#202c25;color:#edf4ee;font:inherit;text-align:left;cursor:pointer}}
 button.action:disabled{{opacity:.6;cursor:wait}}
 #last-grabbed{{margin-top:0;color:#9bad9f}}
+details.grp{{border:1px solid #35433a;padding:0 14px;margin:0}}
+details.grp>summary{{padding:10px 0;color:#9bad9f;font-size:11px;letter-spacing:1px;cursor:pointer}}
+details.grp[open]>summary{{padding-bottom:6px}}
+details.grp>div{{padding-bottom:12px}}
 #admin-overlay:not([hidden]){{display:flex}}
 </style></head>
 <body>
@@ -388,49 +403,46 @@ button.action:disabled{{opacity:.6;cursor:wait}}
 <div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0;color:#9bad9f;font-size:13px;font-weight:600;letter-spacing:1px">SETTINGS</h2><button id="admin-close" type="button" style="background:none;border:none;color:#829187;font-size:18px;cursor:pointer;padding:0 4px">&#x2715;</button></div>
 <form id="admin-form" style="display:grid;gap:10px">
 <p style="margin:0;font-size:11px;color:#829187">Changes take effect immediately. RTSP settings restart the camera connection.</p>
-<fieldset style="border:1px solid #35433a;padding:12px 14px;margin:0"><legend style="color:#829187;font-size:11px;padding:0 6px">CAMERA</legend>
+<details class="grp" name="settings"><summary>CAMERA</summary>
 <div style="display:grid;gap:8px">
 <label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">RTSP URL<input id="a-rtsp-url" type="text" placeholder="rtsp://host/stream" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
 <label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">Username<input id="a-rtsp-user" type="text" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
 <label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">Password<input id="a-rtsp-pass" type="password" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
 <label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">Poll interval (s)<input id="a-poll-seconds" type="number" min="1" max="3600" step="1" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
-</div></fieldset>
-<fieldset style="border:1px solid #35433a;padding:12px 14px;margin:0"><legend style="color:#829187;font-size:11px;padding:0 6px">HOME ASSISTANT</legend>
+</div></details>
+<details class="grp" name="settings"><summary>HOME ASSISTANT</summary>
 <div style="display:grid;gap:8px">
 <label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">Webhook URL<input id="a-ha-webhook-url" type="password" placeholder="http://ha-host:8123/api/webhook/..." style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
 <label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">Timeout (s)<input id="a-ha-webhook-timeout" type="number" min="1" max="60" step="1" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
-</div></fieldset>
-<fieldset style="border:1px solid #35433a;padding:12px 14px;margin:0"><legend style="color:#829187;font-size:11px;padding:0 6px">ALERTS</legend>
+</div></details>
+<details class="grp" name="settings"><summary>ALERTS</summary>
 <div style="display:grid;gap:8px">
 <label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">Low limit (bar)<input id="a-low-threshold" type="number" min="0" max="10" step="0.1" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
 <label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">High limit (bar)<input id="a-high-threshold" type="number" min="0" max="10" step="0.1" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
 <label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">Alert delay (min)<input id="a-alert-delay-minutes" type="number" min="1" max="1440" step="1" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
-</div></fieldset>
-<fieldset style="border:1px solid #35433a;padding:12px 14px;margin:0"><legend style="color:#829187;font-size:11px;padding:0 6px">DETECTION</legend>
+</div></details>
+<details class="grp" name="settings"><summary>DETECTION</summary>
 <div style="display:grid;gap:8px">
 <label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">Brightness threshold<input id="a-brightness-threshold" type="number" min="0" max="255" step="1" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
 <label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">Expected format<select id="a-expected-format" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"><option value="auto">auto</option><option value="d.d">d.d (pressure)</option><option value="dd.d">dd.d (temperature)</option></select></label>
-</div></fieldset>
-<fieldset style="border:1px solid #35433a;padding:12px 14px;margin:0"><legend style="color:#829187;font-size:11px;padding:0 6px">LLM VALIDATOR</legend>
+</div></details>
+<details class="grp" name="settings"><summary>LLM VALIDATOR</summary>
 <div style="display:grid;gap:8px">
 <p style="margin:0;font-size:11px;color:#829187">Used to cross-check suspicious OCR readings. Leave URL blank to disable.</p>
 <label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">Ollama URL<input id="a-ollama-url" type="text" placeholder="http://192.168.0.26:11434" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
 <label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">Model<input id="a-ollama-model" type="text" placeholder="lfm3-vl:latest" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
-</div></fieldset>
+</div></details>
 <button id="admin-save" type="submit" style="justify-self:start;padding:8px 16px;border:1px solid #829987;background:#26372e;color:#edf4ee;font:inherit;cursor:pointer">Save</button>
-</form></div></div>
+</form>
+<button class="action" id="send-test-webhook" type="button">Send test HA message</button></div></div>
 <main><div id="stage"><img id="frame" src="/last.jpg" alt="Latest camera frame with ROI"><div id="roi-box" title="Drag to move ROI"><button id="resize-handle" type="button" title="Drag to resize ROI" aria-label="Resize ROI"></button></div><div id="grab-dot" title="Grabbing frame"></div></div></main>
-<aside><h1>BOILERWATCH</h1><div class="reading"><span id="value">--</span><span id="unit">bar</span></div>
+<aside><h1 id="admin-btn" title="Settings" role="button" tabindex="0"><img id="logo" src="/logo.png" alt="BoilerWatch"><img id="logo-text" src="/logo-text.png" alt="BoilerWatch"></h1><div class="reading"><span id="value">--</span><span id="unit">bar</span></div>
 <div id="status">WAITING</div>
 <img id="llm-image" alt="Processed image sent to the LLM" hidden>
 <dl><dt>Display</dt><dd id="display">--</dd>
 <dt>Error code</dt><dd id="error-code">--</dd>
 <dt>Issue timer</dt><dd id="issue-delay">No active issue</dd></dl>
-<div class="actions"><button class="action" id="capture-now" type="button">Grab new frame</button>
-<button class="action" id="capture-image-btn" type="button" style="border-color:#625226;background:#2c2520">Capture Misread</button>
-<button class="action" id="send-test-webhook" type="button">Send test HA message</button>
-<button class="action" id="admin-btn" type="button">Settings</button>
-<time id="last-grabbed">Last frame: unknown</time></div>
+<div class="actions"><time id="last-grabbed">Last frame: unknown</time></div>
 <time id="updated">{build_label}</time></aside>
 <script>
 let refreshMs={refresh_seconds * 1000};
@@ -527,6 +539,7 @@ function showLastGrabbed(camera){{
     const timestamp=new Date(camera.checked_at).toLocaleString();
     lastGrabbed.textContent=(camera.available?'Last frame: ':'Last grab failed: ')+timestamp;
 }}
+let hasReading=false;
 async function refresh(){{
         if(drag||saving)return;
         frame.src='/last.jpg?t='+Date.now();
@@ -535,7 +548,15 @@ async function refresh(){{
         const response=await fetch('/reading.json?t='+Date.now(),{{cache:'no-store'}});
         const reading=await response.json();
         if(!response.ok)throw new Error(reading.error||'Reading unavailable');
-        if(reading.busy)return;
+        if(reading.busy){{
+            if(!hasReading){{
+                status.textContent='INITIALISING';
+                status.classList.remove('invalid');
+                document.getElementById('updated').textContent='Initialising: waiting for the first frame...';
+            }}
+            return;
+        }}
+        hasReading=true;
         showReading(reading);
     }}catch(error){{
         document.getElementById('value').textContent='--';
@@ -552,9 +573,12 @@ async function refresh(){{
 }}
 frame.addEventListener('load',()=>{{frame.hidden=false;drawRoi();}});
 frame.addEventListener('error',()=>{{frame.hidden=true;}});
-document.getElementById('capture-now').addEventListener('click',async event=>{{
-    const button=event.currentTarget;
-    button.disabled=true;button.textContent='Grabbing frame...';
+let grabbing=false;
+frame.title='Tap to grab a new frame';
+frame.addEventListener('click',async()=>{{
+    if(grabbing)return;
+    grabbing=true;
+    document.getElementById('updated').textContent='Grabbing frame...';
     try{{
         const response=await fetch('/capture',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:'{{}}'}});
         const result=await response.json();
@@ -566,20 +590,26 @@ document.getElementById('capture-now').addEventListener('click',async event=>{{
         document.getElementById('status').textContent='CAMERA GRAB FAILED';
         document.getElementById('status').classList.add('invalid');
         document.getElementById('updated').textContent=error.message;
-    }}finally{{button.disabled=false;button.textContent='Grab new frame';}}
+    }}finally{{grabbing=false;}}
 }});
 document.getElementById('send-test-webhook').addEventListener('click',async event=>{{
     if(!confirm('Send a simulated ECS error to Home Assistant? This may trigger a mobile notification.'))return;
     const button=event.currentTarget;
     button.disabled=true;button.textContent='Sending test...';
+    let outcome='Send test HA message';
     try{{
         const response=await fetch('/test-webhook',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:'{{}}'}});
         const result=await response.json();
         if(!response.ok)throw new Error(result.error||'Webhook delivery failed');
         document.getElementById('updated').textContent='Test HA message sent';
+        outcome='Sent ✓';
     }}catch(error){{
         document.getElementById('updated').textContent=error.message;
-    }}finally{{button.disabled=false;button.textContent='Send test HA message';}}
+        outcome='Failed: '+error.message;
+    }}finally{{
+        button.disabled=false;button.textContent=outcome;
+        if(outcome!=='Send test HA message')setTimeout(()=>{{button.textContent='Send test HA message';}},4000);
+    }}
 }});
 roiBox.addEventListener('pointerdown',event=>{{
     if(!imageSize||!currentRoi)return;
@@ -648,6 +678,9 @@ document.getElementById('admin-btn').addEventListener('click',async()=>{{
         document.getElementById('updated').textContent='Could not load admin settings: '+e.message;
     }}
 }});
+document.querySelectorAll('details.grp').forEach(d=>d.addEventListener('toggle',()=>{{
+    if(d.open)document.querySelectorAll('details.grp').forEach(o=>{{if(o!==d)o.open=false;}});
+}}));
 function closeAdmin(){{const o=document.getElementById('admin-overlay');o.hidden=true;o.style.display='none';}}
 document.addEventListener('click',e=>{{const o=document.getElementById('admin-overlay');if(o&&e.target===o)closeAdmin();}});
 document.addEventListener('keydown',e=>{{const o=document.getElementById('admin-overlay');if(e.key==='Escape'&&o&&!o.hidden)closeAdmin();}});
@@ -683,7 +716,8 @@ document.getElementById('admin-form').addEventListener('submit',async event=>{{
 }});
 function openCaptureModal(){{const o=document.getElementById('capture-overlay');o.hidden=false;o.style.display='flex';document.getElementById('capture-value').focus();}}
 function closeCaptureModal(){{const o=document.getElementById('capture-overlay');o.hidden=true;o.style.display='none';document.getElementById('capture-form').reset();}}
-document.getElementById('capture-image-btn').addEventListener('click',openCaptureModal);
+llmImage.addEventListener('click',openCaptureModal);
+llmImage.title='Click to capture a misread';
 document.getElementById('capture-close').addEventListener('click',closeCaptureModal);
 document.getElementById('capture-cancel').addEventListener('click',closeCaptureModal);
 document.addEventListener('click',e=>{{const o=document.getElementById('capture-overlay');if(o&&e.target===o)closeCaptureModal();}});
@@ -871,6 +905,16 @@ def make_handler(
                 self.send_response(204)
                 self.send_header("Cache-Control", "no-store")
                 self.end_headers()
+                return
+
+            if request_path in _STATIC_IMAGES:
+                body = (_STATIC_DIR / _STATIC_IMAGES[request_path]).read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "public, max-age=86400")
+                self.end_headers()
+                self.wfile.write(body)
                 return
 
             if request_path == "/":
@@ -1454,7 +1498,13 @@ def serve(settings: ViewerSettings | None = None) -> None:
         with shared_cached_reading_lock:
             shared_cached_reading[0] = cached
 
-    def start_camera(rtsp_url: str, rtsp_user: str, rtsp_pass: str, poll_secs: int) -> None:
+    def start_camera(
+        rtsp_url: str,
+        rtsp_user: str,
+        rtsp_pass: str,
+        poll_secs: int,
+        first_capture_in_background: bool = False,
+    ) -> None:
         nonlocal camera_poller, camera_thread, camera_stop_event
         with camera_lock:
             # Stop existing poller if running.
@@ -1472,10 +1522,18 @@ def serve(settings: ViewerSettings | None = None) -> None:
                 on_frame=observe_frame,
                 on_grab_state=lambda grabbing: activity.set(GRABBING if grabbing else IDLE),
             )
-            camera_poller.capture_once()
+            if first_capture_in_background:
+                # Let the page load straight away; it shows "Initialising"
+                # while this first grab and analysis run.
+                activity.set(GRABBING)
+            else:
+                camera_poller.capture_once()
             camera_thread = Thread(
                 target=camera_poller.run,
-                kwargs={"stop_event": camera_stop_event, "capture_on_start": False},
+                kwargs={
+                    "stop_event": camera_stop_event,
+                    "capture_on_start": first_capture_in_background,
+                },
                 daemon=True,
             )
             camera_thread.start()
@@ -1486,6 +1544,7 @@ def serve(settings: ViewerSettings | None = None) -> None:
             settings.rtsp_user,
             settings.rtsp_pass,
             settings.poll_seconds,
+            first_capture_in_background=True,
         )
 
     server = ThreadingHTTPServer(

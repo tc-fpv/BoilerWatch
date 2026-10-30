@@ -19,5 +19,8 @@ test = ["pytest>=8.0"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
+[tool.setuptools.package-data]
+boiler_reader = ["static/*.png"]
+
 [tool.setuptools.packages.find]
 include = ["boiler_reader*"]
