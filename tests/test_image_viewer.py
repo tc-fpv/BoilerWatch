@@ -12,8 +12,22 @@ import pytest
 from boiler_reader.decoder import DigitBox, Reading, ROI
 from boiler_reader.camera import CameraPoller
 from boiler_reader.alert_delay import AlertDelayTracker
-from boiler_reader.image_viewer import ViewerSettings, annotate_roi, make_handler, settings_from_env
+from boiler_reader.frames import annotate_roi
+from boiler_reader.state import AppState
+from boiler_reader.web import make_handler
+from boiler_reader.settings import ViewerSettings, settings_from_env
 from boiler_reader.webhook import HomeAssistantWebhookNotifier
+
+
+def _handler(settings, camera_poller=None, delay_tracker=None, webhook_notifier=None):
+    return make_handler(
+        AppState(
+            settings,
+            camera_poller=camera_poller,
+            delay_tracker=delay_tracker,
+            notifier=webhook_notifier,
+        )
+    )
 
 
 def test_annotate_roi_marks_boundary_without_mutating_source() -> None:
@@ -52,13 +66,13 @@ def test_settings_reject_invalid_port(monkeypatch) -> None:
 
 
 def test_poll_and_low_limit_seeded_from_environment_on_first_boot(monkeypatch, tmp_path) -> None:
-    from boiler_reader.image_viewer import _load_admin_settings
+    from boiler_reader.settings import load_admin_settings
     monkeypatch.setenv("POLL_SECONDS", "17")
     monkeypatch.setenv("LOW_THRESHOLD", "1.4")
     monkeypatch.setenv("ALERT_DELAY_MINUTES", "8")
     settings_path = tmp_path / "reader-settings.json"
 
-    saved = _load_admin_settings(settings_path)
+    saved = load_admin_settings(settings_path)
 
     assert saved["poll_seconds"] == 17
     assert saved["low_threshold"] == 1.4
@@ -67,17 +81,17 @@ def test_poll_and_low_limit_seeded_from_environment_on_first_boot(monkeypatch, t
 
 
 def test_lower_limit_environment_alias(monkeypatch, tmp_path) -> None:
-    from boiler_reader.image_viewer import _load_admin_settings
+    from boiler_reader.settings import load_admin_settings
     monkeypatch.setenv("LOWER_LIMIT", "1.6")
     monkeypatch.delenv("LOW_THRESHOLD", raising=False)
 
-    saved = _load_admin_settings(tmp_path / "reader-settings.json")
+    saved = load_admin_settings(tmp_path / "reader-settings.json")
 
     assert saved["low_threshold"] == 1.6
 
 
 def test_saved_settings_override_environment(monkeypatch, tmp_path) -> None:
-    from boiler_reader.image_viewer import _load_admin_settings
+    from boiler_reader.settings import load_admin_settings
     settings_path = tmp_path / "reader-settings.json"
     settings_path.write_text(
         json.dumps({"poll_seconds": 45, "low_threshold": 1.2, "alert_delay_minutes": 11,
@@ -89,7 +103,7 @@ def test_saved_settings_override_environment(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("POLL_SECONDS", "17")
     monkeypatch.setenv("LOW_THRESHOLD", "1.4")
 
-    saved = _load_admin_settings(settings_path)
+    saved = load_admin_settings(settings_path)
 
     assert saved["poll_seconds"] == 45
     assert saved["low_threshold"] == 1.2
@@ -116,7 +130,7 @@ def test_viewer_serves_latest_image_with_roi(tmp_path) -> None:
         logger=lambda event, **fields: None,
     )
     delay_tracker = AlertDelayTracker(300)
-    handler = make_handler(settings, poller, delay_tracker)
+    handler = _handler(settings, poller, delay_tracker)
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -126,7 +140,14 @@ def test_viewer_serves_latest_image_with_roi(tmp_path) -> None:
         assert '<img id="frame" src="/last.jpg"' in page
         assert 'id="logo"' in page
         assert 'id="error-code"' in page
-        assert "fetch('/reading.json" in page
+        assert 'src="/page.js"' in page
+        assert 'href="/page.css"' in page
+        assert "refreshMs:2000" in page
+        script = urlopen(f"http://127.0.0.1:{server.server_port}/page.js")
+        assert script.headers.get_content_type() == "text/javascript"
+        assert "fetch('/reading.json" in script.read().decode("utf-8")
+        stylesheet = urlopen(f"http://127.0.0.1:{server.server_port}/page.css")
+        assert stylesheet.headers.get_content_type() == "text/css"
         assert 'id="a-poll-seconds"' in page
         assert 'id="a-low-threshold"' in page
         assert 'id="a-alert-delay-minutes"' in page
@@ -233,7 +254,7 @@ def test_missing_camera_frame_returns_recorded_capture_error(tmp_path) -> None:
         image_path=image_path,
         roi=ROI(0, 0, 50, 50),
     )
-    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(settings))
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _handler(settings))
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -251,7 +272,7 @@ def test_missing_camera_frame_returns_recorded_capture_error(tmp_path) -> None:
 def test_temperature_reading_does_not_trigger_low_pressure_issue(tmp_path, monkeypatch) -> None:
     image_path = Path(__file__).with_name("boiler.PNG")
     monkeypatch.setattr(
-        "boiler_reader.image_viewer.decode_frame",
+        "boiler_reader.reader.decode_frame",
         lambda image, config: Reading(
             value=65.3,
             valid=True,
@@ -269,7 +290,7 @@ def test_temperature_reading_does_not_trigger_low_pressure_issue(tmp_path, monke
         low_threshold=1.5,
         high_threshold=2.0,
     )
-    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(settings))
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _handler(settings))
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -306,7 +327,7 @@ def test_webhook_fires_once_when_low_pressure_delay_expires() -> None:
     )
     server = ThreadingHTTPServer(
         ("127.0.0.1", 0),
-        make_handler(settings, delay_tracker=tracker, webhook_notifier=notifier),
+        _handler(settings, delay_tracker=tracker, webhook_notifier=notifier),
     )
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -351,7 +372,7 @@ def test_manual_capture_endpoint_grabs_frame_and_returns_timestamp(tmp_path) -> 
     settings = ViewerSettings(image_path=image_path, roi=ROI(330, 238, 110, 94))
     server = ThreadingHTTPServer(
         ("127.0.0.1", 0),
-        make_handler(settings, camera_poller=poller),
+        _handler(settings, camera_poller=poller),
     )
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -388,7 +409,7 @@ def test_manual_test_webhook_endpoint_sends_simulated_error(tmp_path) -> None:
     )
     server = ThreadingHTTPServer(
         ("127.0.0.1", 0),
-        make_handler(settings, webhook_notifier=notifier),
+        _handler(settings, webhook_notifier=notifier),
     )
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -414,6 +435,21 @@ def test_manual_test_webhook_endpoint_sends_simulated_error(tmp_path) -> None:
             "delay_minutes": 0,
             "simulated": True,
         }]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+def test_activity_endpoint_reports_idle_phase(tmp_path) -> None:
+    settings = ViewerSettings(image_path=tmp_path / "latest.jpg", roi=ROI(0, 0, 50, 50))
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _handler(settings))
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        response = urlopen(f"http://127.0.0.1:{server.server_port}/activity.json")
+        activity = json.loads(response.read())
+        assert activity["phase"] == "idle"
+        assert activity["llm_image"] == 0
     finally:
         server.shutdown()
         server.server_close()

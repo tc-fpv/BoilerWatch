@@ -1,0 +1,72 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/png" href="/favicon.png">
+<title>BoilerWatch</title>
+<link rel="stylesheet" href="/page.css">
+</head>
+<div id="capture-overlay" hidden style="position:fixed;inset:0;background:rgba(0,0,0,.7);align-items:center;justify-content:center;z-index:100">
+<div style="background:#17201c;border:1px solid #35433a;padding:28px 24px;width:min(360px,95vw);display:flex;flex-direction:column;gap:16px">
+<div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0;color:#9bad9f;font-size:13px;font-weight:600;letter-spacing:1px">CAPTURE IMAGE</h2><button id="capture-close" type="button" style="background:none;border:none;color:#829187;font-size:18px;cursor:pointer;padding:0 4px">&#x2715;</button></div>
+<p style="margin:0;font-size:11px;color:#829187">Save the current raw image with the correct reading as the filename.</p>
+<form id="capture-form" style="display:grid;gap:14px">
+<div style="display:grid;gap:6px;width:50%"><label for="capture-value" style="color:#9bad9f;font-size:12px">CORRECT READING</label><input id="capture-value" type="text" placeholder="e.g. 1.2 or ECS" autocomplete="off" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></div>
+<fieldset style="border:1px solid #35433a;padding:10px 14px;margin:0;width:50%"><legend style="color:#829187;font-size:11px;padding:0 6px">UNITS</legend>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+<label style="display:flex;align-items:center;gap:6px;color:#9bad9f;font-size:12px;cursor:pointer"><input type="radio" name="capture-unit" value="bar" checked style="accent-color:#ff7a35"> bar</label>
+<label style="display:flex;align-items:center;gap:6px;color:#9bad9f;font-size:12px;cursor:pointer"><input type="radio" name="capture-unit" value="degC" style="accent-color:#ff7a35"> °C</label>
+<label style="display:flex;align-items:center;gap:6px;color:#9bad9f;font-size:12px;cursor:pointer"><input type="radio" name="capture-unit" value="error" style="accent-color:#ff7a35"> error</label>
+</div></fieldset>
+<div style="display:flex;gap:10px">
+<button id="capture-save" type="submit" style="padding:8px 16px;border:1px solid #829987;background:#26372e;color:#edf4ee;font:inherit;cursor:pointer">Save</button>
+<button type="button" id="capture-cancel" style="padding:8px 12px;border:1px solid #526258;background:#202c25;color:#9bad9f;font:inherit;cursor:pointer">Cancel</button>
+</div>
+</form></div></div>
+<div id="admin-overlay" hidden style="position:fixed;inset:0;background:rgba(0,0,0,.7);align-items:center;justify-content:center;z-index:100">
+<div style="background:#17201c;border:1px solid #35433a;padding:28px 24px;width:min(480px,95vw);max-height:90vh;overflow-y:auto;display:flex;flex-direction:column;gap:16px">
+<div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0;color:#9bad9f;font-size:13px;font-weight:600;letter-spacing:1px">SETTINGS</h2><button id="admin-close" type="button" style="background:none;border:none;color:#829187;font-size:18px;cursor:pointer;padding:0 4px">&#x2715;</button></div>
+<form id="admin-form" style="display:grid;gap:10px">
+<p style="margin:0;font-size:11px;color:#829187">Changes take effect immediately. RTSP settings restart the camera connection.</p>
+<details class="grp" name="settings"><summary>CAMERA</summary>
+<div style="display:grid;gap:8px">
+<label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">RTSP URL<input id="a-rtsp-url" type="text" placeholder="rtsp://host/stream" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
+<label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">Username<input id="a-rtsp-user" type="text" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
+<label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">Password<input id="a-rtsp-pass" type="password" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
+<label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">Poll interval (s)<input id="a-poll-seconds" type="number" min="1" max="3600" step="1" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
+</div></details>
+<details class="grp" name="settings"><summary>HOME ASSISTANT</summary>
+<div style="display:grid;gap:8px">
+<label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">Webhook URL<input id="a-ha-webhook-url" type="password" placeholder="http://ha-host:8123/api/webhook/..." style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
+<label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">Timeout (s)<input id="a-ha-webhook-timeout" type="number" min="1" max="60" step="1" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
+</div></details>
+<details class="grp" name="settings"><summary>ALERTS</summary>
+<div style="display:grid;gap:8px">
+<label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">Low limit (bar)<input id="a-low-threshold" type="number" min="0" max="10" step="0.1" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
+<label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">High limit (bar)<input id="a-high-threshold" type="number" min="0" max="10" step="0.1" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
+<label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">Alert delay (min)<input id="a-alert-delay-minutes" type="number" min="1" max="1440" step="1" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
+</div></details>
+<details class="grp" name="settings"><summary>DETECTION</summary>
+<div style="display:grid;gap:8px">
+<label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">Brightness threshold<input id="a-brightness-threshold" type="number" min="0" max="255" step="1" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
+<label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">Expected format<select id="a-expected-format" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"><option value="auto">auto</option><option value="d.d">d.d (pressure)</option><option value="dd.d">dd.d (temperature)</option></select></label>
+</div></details>
+<details class="grp" name="settings"><summary>LLM VALIDATOR</summary>
+<div style="display:grid;gap:8px">
+<p style="margin:0;font-size:11px;color:#829187">Used to cross-check suspicious OCR readings. Leave URL blank to disable.</p>
+<label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">Ollama URL<input id="a-ollama-url" type="text" placeholder="http://192.168.0.26:11434" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
+<label style="display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px;color:#9bad9f;font-size:12px">Model<input id="a-ollama-model" type="text" placeholder="lfm3-vl:latest" style="padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit;width:100%"></label>
+</div></details>
+<button id="admin-save" type="submit" style="justify-self:start;padding:8px 16px;border:1px solid #829987;background:#26372e;color:#edf4ee;font:inherit;cursor:pointer">Save</button>
+</form>
+<button class="action" id="send-test-webhook" type="button">Send test HA message</button></div></div>
+<main><div id="stage"><img id="frame" src="/last.jpg" alt="Latest camera frame with ROI"><div id="roi-box" title="Drag to move ROI"><button id="resize-handle" type="button" title="Drag to resize ROI" aria-label="Resize ROI"></button></div><div id="grab-dot" title="Grabbing frame"></div></div></main>
+<aside><h1 id="admin-btn" title="Settings" role="button" tabindex="0"><img id="logo" src="/logo.png" alt="BoilerWatch"><img id="logo-text" src="/logo-text.png" alt="BoilerWatch"></h1><div class="reading"><span id="value">--</span><span id="unit">bar</span></div>
+<div id="status">WAITING</div>
+<img id="llm-image" alt="Processed image sent to the LLM" hidden>
+<dl><dt>Display</dt><dd id="display">--</dd>
+<dt>Error code</dt><dd id="error-code">--</dd>
+<dt>Issue timer</dt><dd id="issue-delay">No active issue</dd></dl>
+<div class="actions"><time id="last-grabbed">Last frame: unknown</time></div>
+<time id="updated">__BUILD_LABEL__</time></aside>
+<script>window.BOILER={refreshMs:__REFRESH_MS__,buildLabel:"__BUILD_LABEL__"};</script>
+<script src="/page.js"></script>
+</body></html>

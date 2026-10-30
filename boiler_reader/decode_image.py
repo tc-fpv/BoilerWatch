@@ -11,7 +11,7 @@ from typing import Sequence
 import cv2
 
 from boiler_reader.decoder import DecoderConfig, DigitBox, ROI, Reading, decode_frame
-from boiler_reader.locator import crop_display, locate_display, located_decoder_config
+from boiler_reader.locator import crop_display, locate_display
 from boiler_reader.ocr import read_display
 
 
@@ -117,6 +117,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             }, indent=2))
             return 0
     else:
+        if args.format != "auto" or args.invert_threshold:
+            parser.error("--format and --invert-threshold only apply with --roi and --digit-box")
         located = locate_display(image, args.brightness_threshold)
         if located is None:
             parser.error("display could not be located automatically; try supplying --roi and --digit-box")

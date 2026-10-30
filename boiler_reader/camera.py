@@ -8,8 +8,7 @@ import os
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from threading import Event
-from threading import Lock
+from threading import Event, Lock
 from typing import Callable
 from urllib.parse import quote, urlsplit, urlunsplit
 
@@ -89,6 +88,16 @@ class CameraPoller:
             raise RuntimeError("RTSP camera did not return a frame")
         return frame
 
+    def _redact(self, message: str) -> str:
+        """Hide credentials; a very short username is skipped as it would mangle the text."""
+        secrets = [self.rtsp_url, self.password]
+        if len(self.username) >= 4:
+            secrets.append(self.username)
+        for secret in secrets:
+            if secret:
+                message = message.replace(secret, "<REDACTED>")
+        return message
+
     def _write_status(self, available: bool, error: str | None = None) -> None:
         self.status_path.parent.mkdir(parents=True, exist_ok=True)
         status = {
@@ -132,23 +141,9 @@ class CameraPoller:
             temporary_path.write_bytes(encoded.tobytes())
             temporary_path.replace(self.image_path)
             self._write_status(available=True)
-            if self.on_frame is not None:
-                try:
-                    self.on_frame(frame, None)
-                except Exception as callback_error:
-                    self.logger("camera_frame_callback_failed", error=str(callback_error))
-            self.logger(
-                "camera_frame_captured",
-                width=int(frame.shape[1]),
-                height=int(frame.shape[0]),
-            )
-            return True
         except Exception as error:
             self._clear_latest_frame()
-            message = str(error)
-            for secret in (self.password, self.username, self.rtsp_url):
-                if secret:
-                    message = message.replace(secret, "<REDACTED>")
+            message = self._redact(str(error))
             try:
                 self._write_status(available=False, error=message)
             except OSError as status_error:
@@ -161,6 +156,19 @@ class CameraPoller:
             self.logger("camera_frame_failed", error=message)
             return False
 
+        # Outside the try above so a failing callback or logger can't discard a good frame.
+        if self.on_frame is not None:
+            try:
+                self.on_frame(frame, None)
+            except Exception as callback_error:
+                self.logger("camera_frame_callback_failed", error=str(callback_error))
+        self.logger(
+            "camera_frame_captured",
+            width=int(frame.shape[1]),
+            height=int(frame.shape[0]),
+        )
+        return True
+
     def run(self, stop_event: Event, capture_on_start: bool = True) -> None:
         self.run_with_wait(stop_event, capture_on_start, None)
 
@@ -170,16 +178,20 @@ class CameraPoller:
         capture_on_start: bool,
         wait_fn: Callable[[float], bool] | None,
     ) -> None:
+        cycle_started = time.monotonic()
         if capture_on_start:
             self.capture_once()
         wait = wait_fn or self._poll_wakeup.wait
         while not stop_event.is_set():
-            woke_early = wait(self.get_poll_seconds())
+            # Poll start-to-start, so analysis time doesn't stretch the interval.
+            remaining = max(0.0, self.get_poll_seconds() - (time.monotonic() - cycle_started))
+            woke_early = wait(remaining)
             if stop_event.is_set():
                 break
             if woke_early:
                 self._poll_wakeup.clear()
                 continue
+            cycle_started = time.monotonic()
             self.capture_once()
 
     def wake(self) -> None:

@@ -39,6 +39,7 @@ _MIN_HEIGHT_FRACTION = 0.45
 # each inferred digit box to absorb blur / slight misalignment.
 _BOX_PADDING_FRACTION = 0.08
 
+
 @dataclass(frozen=True)
 class LocatedDisplay:
     """Result of automatic display localisation."""
@@ -104,13 +105,12 @@ def _find_digit_row_contours(
 
 def _merge_bounding_rect(contours: list[np.ndarray]) -> tuple[int, int, int, int]:
     """Return the bounding rect that encompasses all supplied contours."""
-    xs = [cv2.boundingRect(c)[0] for c in contours]
-    ys = [cv2.boundingRect(c)[1] for c in contours]
-    x2s = [cv2.boundingRect(c)[0] + cv2.boundingRect(c)[2] for c in contours]
-    y2s = [cv2.boundingRect(c)[1] + cv2.boundingRect(c)[3] for c in contours]
-    x, y = min(xs), min(ys)
-    return x, y, max(x2s) - x, max(y2s) - y
-
+    rects = [cv2.boundingRect(c) for c in contours]
+    x = min(rx for rx, _, _, _ in rects)
+    y = min(ry for _, ry, _, _ in rects)
+    x2 = max(rx + rw for rx, _, rw, _ in rects)
+    y2 = max(ry + rh for _, ry, _, rh in rects)
+    return x, y, x2 - x, y2 - y
 
 
 def _lit_runs(col_sums: np.ndarray, min_width: int = 4) -> list[tuple[int, int]]:
@@ -134,7 +134,6 @@ def _lit_runs(col_sums: np.ndarray, min_width: int = 4) -> list[tuple[int, int]]
 def _infer_digit_boxes(
     crop: np.ndarray,
     threshold: int,
-    pad: int,
 ) -> tuple[tuple[DigitBox, ...], DigitBox | None]:
     """Infer per-character boxes and decimal box from a digit-row crop.
 
@@ -292,7 +291,7 @@ def locate_display(
         )
         local_threshold = int(local_threshold)
 
-    digit_boxes, decimal_box = _infer_digit_boxes(crop, local_threshold, pad_px)
+    digit_boxes, decimal_box = _infer_digit_boxes(crop, local_threshold)
 
     roi = ROI(x=roi_x, y=roi_y, width=roi_w, height=roi_h)
     return LocatedDisplay(

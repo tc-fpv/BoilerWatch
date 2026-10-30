@@ -144,3 +144,15 @@ def test_live_frames_of_1_1_bar_read_correctly_with_vote(path: Path) -> None:
     assert reading.valid
     assert reading.value == pytest.approx(1.1, abs=0.01)
     assert reading.unit == "bar"
+
+
+def test_every_request_failing_raises_llm_unavailable(
+    monkeypatch: pytest.MonkeyPatch, crop: np.ndarray
+) -> None:
+    def fake_ask(crop, url, model, timeout=60, processed=None):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(ocr, "_ask_ollama", fake_ask)
+
+    with pytest.raises(ocr.LLMUnavailableError):
+        read_display(crop, "http://unused")

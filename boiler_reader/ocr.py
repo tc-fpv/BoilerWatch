@@ -14,6 +14,7 @@ import base64
 import collections
 import dataclasses
 import json
+import logging
 import os
 import random
 import re
@@ -28,6 +29,16 @@ from boiler_reader.decoder import KNOWN_ERROR_CODES, Reading
 
 
 _UPSCALE = 4
+
+
+class LLMUnavailableError(RuntimeError):
+    """Every request to the LLM server failed, so there is no reading to judge."""
+
+
+def _log(event: str, **fields: object) -> None:
+    logging.getLogger("boiler_reader.ocr").info(
+        json.dumps({"event": event, **fields}, separators=(",", ":"))
+    )
 
 _PROMPT = (
     "This is a cropped, upscaled seven-segment display from a boiler gauge. "
@@ -222,14 +233,14 @@ def _interpret(raw: str) -> Reading:
 
 def _read_once(
     crop: np.ndarray, ollama_url: str, model: str, processed: np.ndarray
-) -> str:
-    """One LLM read; a failed request counts as an empty reply."""
+) -> str | None:
+    """One LLM read; None when the request itself failed."""
     try:
         raw, elapsed = _ask_ollama(crop, ollama_url, model, processed=processed)
     except Exception as exc:
-        print(f"ocr: ollama request failed: {exc}")
-        return ""
-    print(f"ocr: llm={raw!r} ({elapsed:.1f}s)")
+        _log("ocr_request_failed", error_type=type(exc).__name__, error=str(exc))
+        return None
+    _log("ocr_llm_read", reply=raw, seconds=round(elapsed, 1))
     return raw
 
 
@@ -253,7 +264,8 @@ def read_display(
     reading has confidence 1.0.  Otherwise one more differently preprocessed
     read breaks the tie and the majority wins, with confidence = its share of
     the votes.  With no majority the Reading is invalid (value None) and
-    raw_pattern lists the candidate replies separated by "/".
+    raw_pattern lists the candidate replies separated by "/".  Failed requests
+    are not votes; if every request fails LLMUnavailableError is raised.
 
     ollama_url defaults to the OLLAMA_URL env var if not supplied.
     crop should be a grayscale or BGR image of just the digit row.
@@ -270,12 +282,17 @@ def read_display(
         # Called just before the request so the UI can show what is being sent.
         on_prepared(first)
 
-    reads = [
+    attempts = [
         _read_once(crop, ollama_url, model, first if i == 0 else prep(crop))
         for i, prep in enumerate(_PRIMARY_PREPROCESSORS)
     ]
-    if len(set(reads)) > 1:
-        reads.append(_read_once(crop, ollama_url, model, _TIEBREAK_PREPROCESSOR(crop)))
+    if len({a for a in attempts if a is not None}) > 1:
+        attempts.append(_read_once(crop, ollama_url, model, _TIEBREAK_PREPROCESSOR(crop)))
+
+    # A failed request is not a vote: only replies the model actually gave count.
+    reads = [a for a in attempts if a is not None]
+    if not reads:
+        raise LLMUnavailableError(f"No reply from the LLM server at {ollama_url}")
 
     winner, votes = _vote(reads)
     if winner is None:
@@ -294,10 +311,12 @@ def read_display(
         if not reading.valid:
             reading = dataclasses.replace(reading, confidence=0.0)
 
-    print(
-        f"ocr: reads={reads} -> "
-        f"{'valid' if reading.valid else 'invalid'} "
-        f"{reading.value} {reading.unit or ''} "
-        f"(confidence {reading.confidence:.2f})"
+    _log(
+        "ocr_result",
+        reads=reads,
+        valid=reading.valid,
+        value=reading.value,
+        unit=reading.unit,
+        confidence=round(reading.confidence, 2),
     )
     return reading, first

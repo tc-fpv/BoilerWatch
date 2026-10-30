@@ -1,0 +1,51 @@
+:root{color-scheme:dark;font-family:Consolas,'Courier New',monospace;background:#101514;color:#e8efeb}
+*{box-sizing:border-box}
+html,body{width:100%;height:100%;margin:0;overflow:hidden}
+body{display:flex;background:#101514}
+main{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;background:#080b0a;padding:16px}
+#stage{position:relative;display:inline-block;max-width:100%;max-height:100%}
+#frame{cursor:pointer;display:block;max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain}
+@media(max-width:700px){html,body{height:auto;overflow:auto}body{flex-direction:column}main{min-height:0;padding:10px}aside{flex:0 0 auto;width:100%;padding:14px 18px;gap:10px;border-left:0;border-top:1px solid #35433a}.reading{min-height:60px}h1 #logo{display:none}h1 #logo-text{display:block}#value{font-size:47.5px}dl{grid-template-columns:1fr 1fr}dt{margin-top:3px}time{margin-top:4px}}
+#roi-box{position:absolute;border:2px solid #ff7a35;cursor:move;touch-action:none;min-width:8px;min-height:8px}
+#resize-handle{position:absolute;right:-7px;bottom:-7px;width:14px;height:14px;padding:0;border:2px solid #101514;background:#ff7a35;cursor:nwse-resize;touch-action:none}
+#roi-box.ok{border-color:#2ecc71}#roi-box.ok #resize-handle{background:#2ecc71}
+#roi-box.bad{border-color:#ff3b3b}#roi-box.bad #resize-handle{background:#ff3b3b}
+#roi-box.analyzing{animation:roi-flash .6s steps(1) infinite}
+@keyframes roi-flash{0%{border-color:#ff9a1f;box-shadow:0 0 8px #ff9a1f}50%{border-color:transparent;box-shadow:none}}
+#grab-dot{position:absolute;left:10px;bottom:10px;width:14px;height:14px;background:#ff2d2d;pointer-events:none;visibility:hidden}
+#grab-dot.on{visibility:visible;animation:grab-flash .5s steps(1) infinite}
+@keyframes grab-flash{0%{opacity:1}50%{opacity:0}}
+aside{flex:0 0 310px;padding:28px 24px;background:#17201c;border-left:1px solid #35433a;display:flex;flex-direction:column;gap:22px}
+h1{margin:0;line-height:0;align-self:center}
+#logo{display:block;width:170px;max-width:100%;height:auto;margin:0 auto}
+#logo-text{display:none;width:200px;max-width:100%;height:auto;margin:0 auto}
+.reading{display:flex;align-items:baseline;justify-content:center;gap:10px;min-height:82px}
+#value{font-size:65px;line-height:1;color:#f1f6f2}
+@keyframes value-flash{0%,100%{opacity:1}50%{opacity:.1}}
+#value.flash{animation:value-flash .4s ease-in-out 2}
+h1#admin-btn{cursor:pointer}
+#unit{font-size:15px;color:#9bad9f}
+#status{align-self:flex-start;border:1px solid #668875;color:#bde2c7;padding:6px 9px;font-size:12px}
+#status.invalid{border-color:#b77568;color:#f0b2a4}
+@keyframes llm-flash{0%,100%{border-color:#35433a;box-shadow:0 0 0 rgba(144,238,144,0)}50%{border-color:#90ee90;box-shadow:0 0 10px rgba(144,238,144,.6)}}
+#llm-image.flash{animation:llm-flash .8s ease-in-out 2}
+#llm-image{cursor:pointer;display:block;max-width:100%;max-height:90px;object-fit:contain;align-self:flex-start;border:1px solid #35433a;background:#000}
+dl{margin:0;display:grid;grid-template-columns:1fr;gap:7px}
+dt{margin-top:9px;color:#829187;font-size:11px;text-transform:uppercase}
+dd{margin:0;overflow-wrap:anywhere;font-size:14px;color:#e0e9e3}
+#pattern{font-size:12px;color:#bac8be}
+time{margin-top:auto;color:#718077;font-size:11px}
+form{display:grid;gap:10px;border-top:1px solid #35433a;padding-top:16px}
+label{display:grid;grid-template-columns:1fr 90px;align-items:center;gap:8px;color:#9bad9f;font-size:12px}
+input{width:90px;padding:7px;border:1px solid #526258;background:#0f1512;color:#f1f6f2;font:inherit}
+button.save{justify-self:start;padding:8px 12px;border:1px solid #829987;background:#26372e;color:#edf4ee;font:inherit;cursor:pointer}
+button.save:disabled{opacity:.6;cursor:wait}
+.actions{display:grid;gap:8px;border-top:1px solid #35433a;padding-top:14px}
+button.action{width:100%;padding:8px 10px;border:1px solid #526258;background:#202c25;color:#edf4ee;font:inherit;text-align:left;cursor:pointer}
+button.action:disabled{opacity:.6;cursor:wait}
+#last-grabbed{margin-top:0;color:#9bad9f}
+details.grp{border:1px solid #35433a;padding:0 14px;margin:0}
+details.grp>summary{padding:10px 0;color:#9bad9f;font-size:11px;letter-spacing:1px;cursor:pointer}
+details.grp[open]>summary{padding-bottom:6px}
+details.grp>div{padding-bottom:12px}
+#admin-overlay:not([hidden]){display:flex}

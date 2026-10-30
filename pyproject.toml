@@ -20,7 +20,7 @@ test = ["pytest>=8.0"]
 testpaths = ["tests"]
 
 [tool.setuptools.package-data]
-boiler_reader = ["static/*.png"]
+boiler_reader = ["static/*.png", "static/*.html", "static/*.css", "static/*.js"]
 
 [tool.setuptools.packages.find]
 include = ["boiler_reader*"]

@@ -65,7 +65,10 @@ def create_from_env(
     webhook_url = os.getenv("HA_WEBHOOK_URL", "").strip()
     if not webhook_url:
         return None
-    timeout_seconds = int(os.getenv("HA_WEBHOOK_TIMEOUT", "5"))
+    try:
+        timeout_seconds = int(os.getenv("HA_WEBHOOK_TIMEOUT", "5"))
+    except ValueError:
+        raise ValueError("HA_WEBHOOK_TIMEOUT must be a whole number of seconds") from None
     if not 1 <= timeout_seconds <= 60:
         raise ValueError("HA_WEBHOOK_TIMEOUT must be between 1 and 60 seconds")
     return HomeAssistantWebhookNotifier(
