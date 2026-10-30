@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from http.server import ThreadingHTTPServer
+import uvicorn
+
 
 from boiler_reader.activity import GRABBING, IDLE
 from boiler_reader.analysis import FrameAnalyzer
@@ -11,7 +12,7 @@ from boiler_reader.camera_service import CameraService
 from boiler_reader.settings import ViewerSettings, settings_from_env
 from boiler_reader.settings_service import SettingsService, make_notifier
 from boiler_reader.state import AppState
-from boiler_reader.web import make_handler
+from boiler_reader.web import create_app
 
 
 def serve(settings: ViewerSettings | None = None) -> None:
@@ -41,16 +42,16 @@ def serve(settings: ViewerSettings | None = None) -> None:
             first_capture_in_background=True,
         )
 
-    server = ThreadingHTTPServer(
-        ("0.0.0.0", settings.port), make_handler(state, analyzer, settings_service)
-    )
     print(f"boilerwatch: serving on port {settings.port}; image={settings.image_path}")
     try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
+        uvicorn.run(
+            create_app(state, analyzer, settings_service),
+            host="0.0.0.0",
+            port=settings.port,
+            log_config=None,
+            access_log=False,
+        )
     finally:
-        server.server_close()
         camera.stop()
 
 

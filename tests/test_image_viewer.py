@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from http.server import ThreadingHTTPServer
+import socket
 from threading import Thread
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -8,19 +8,40 @@ from urllib.request import Request, urlopen
 import cv2
 import numpy as np
 import pytest
+import uvicorn
 
 from boiler_reader.decoder import DigitBox, Reading, ROI
 from boiler_reader.camera import CameraPoller
 from boiler_reader.alert_delay import AlertDelayTracker
 from boiler_reader.frames import annotate_roi
 from boiler_reader.state import AppState
-from boiler_reader.web import make_handler
+from boiler_reader.web import create_app
 from boiler_reader.settings import ViewerSettings, settings_from_env
 from boiler_reader.webhook import HomeAssistantWebhookNotifier
 
 
+class ThreadingHTTPServer:
+    """Serve a FastAPI app on a free local port, with the same small interface the tests use."""
+
+    def __init__(self, address, app) -> None:
+        self._socket = socket.socket()
+        self._socket.bind(address)
+        self._socket.listen(64)
+        self.server_port = self._socket.getsockname()[1]
+        self._server = uvicorn.Server(uvicorn.Config(app, log_config=None, access_log=False))
+
+    def serve_forever(self) -> None:
+        self._server.run(sockets=[self._socket])
+
+    def shutdown(self) -> None:
+        self._server.should_exit = True
+
+    def server_close(self) -> None:
+        self._socket.close()
+
+
 def _handler(settings, camera_poller=None, delay_tracker=None, webhook_notifier=None):
-    return make_handler(
+    return create_app(
         AppState(
             settings,
             camera_poller=camera_poller,

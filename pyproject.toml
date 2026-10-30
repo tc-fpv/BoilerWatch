@@ -11,6 +11,8 @@ dependencies = [
     "numpy>=1.26",
     "opencv-python-headless>=4.9",
     "python-dotenv>=1.0",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
 ]
 
 [project.optional-dependencies]

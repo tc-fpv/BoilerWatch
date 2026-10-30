@@ -1,4 +1,4 @@
-"""HTTP layer: routes each request to the state, analysis and service objects."""
+"""HTTP layer (FastAPI): routes each request to the state, analysis and service objects."""
 
 from __future__ import annotations
 
@@ -7,10 +7,11 @@ import os
 import subprocess
 from dataclasses import asdict
 from functools import lru_cache
-from http.server import BaseHTTPRequestHandler
 from pathlib import Path
-from typing import Type
-from urllib.parse import urlsplit
+from typing import Callable
+
+from fastapi import Depends, FastAPI, Request, Response
+from fastapi.responses import JSONResponse
 
 from boiler_reader.activity import GRABBING, IDLE
 from boiler_reader.analysis import FrameAnalyzer, camera_status
@@ -30,29 +31,6 @@ _STATIC_IMAGES = {
 _STATIC_TEXT = {
     "/page.css": ("page.css", "text/css; charset=utf-8"),
     "/page.js": ("page.js", "text/javascript; charset=utf-8"),
-}
-
-# path -> handler method
-_GET_ROUTES = {
-    "/": "_get_page",
-    "/favicon.ico": "_get_favicon",
-    "/reading.json": "_get_reading",
-    "/settings.json": "_get_settings",
-    "/admin-settings": "_get_admin_settings",
-    "/activity.json": "_get_activity",
-    "/camera-status.json": "_get_camera_status",
-    "/llm-image.jpg": "_get_llm_image",
-    "/last.jpg": "_get_last_image",
-}
-
-# path -> (handler method, what a failed save is called, or None to leave errors to the handler)
-_POST_ROUTES = {
-    "/capture": ("_post_capture", None),
-    "/test-webhook": ("_post_test_webhook", None),
-    "/save-mismatch": ("_post_save_mismatch", "image"),
-    "/settings": ("_post_settings", "settings"),
-    "/admin-settings": ("_post_admin_settings", "admin settings"),
-    "/roi": ("_post_roi", "ROI"),
 }
 
 
@@ -85,75 +63,106 @@ def _page(refresh_seconds: int) -> bytes:
     )
 
 
-class _Handler(BaseHTTPRequestHandler):
-    # Bound to real objects by make_handler.
-    state: AppState
-    analyzer: FrameAnalyzer
-    settings_service: SettingsService
-    roi_service: RoiService
+class _BadRequest(Exception):
+    pass
 
-    # -- dispatch ---------------------------------------------------------
 
-    def do_GET(self) -> None:
-        path = urlsplit(self.path).path
-        if path in _STATIC_IMAGES:
-            self._send_static(_STATIC_IMAGES[path], "image/png", "public, max-age=86400")
-        elif path in _STATIC_TEXT:
-            filename, content_type = _STATIC_TEXT[path]
-            self._send_static(filename, content_type, "no-cache")
-        elif path in _GET_ROUTES:
-            getattr(self, _GET_ROUTES[path])()
-        else:
-            self.send_error(404)
+def _json_body(max_bytes: int, name: str) -> Callable[[Request], object]:
+    """Dependency: the request's JSON object, rejecting empty or oversized bodies."""
 
-    def do_POST(self) -> None:
-        path = urlsplit(self.path).path
-        if path not in _POST_ROUTES:
-            self.send_error(404)
-            return
-        method, save_label = _POST_ROUTES[path]
-        if save_label is None:
-            getattr(self, method)()
-            return
+    async def read(request: Request) -> dict[str, object]:
+        raw = await request.body()
+        if not 0 < len(raw) <= max_bytes:
+            raise _BadRequest(f"{name} must be between 1 and {max_bytes} bytes")
         try:
-            getattr(self, method)()
-        except (AttributeError, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
-            self._send_json(400, {"error": str(error)})
-        except OSError as error:
-            self._send_json(500, {"error": f"Could not save {save_label}: {error}"})
+            return json.loads(raw)
+        except ValueError as error:
+            raise _BadRequest(str(error)) from error
+
+    return read
+
+
+def _json(status: int, payload: dict[str, object]) -> JSONResponse:
+    return JSONResponse(payload, status_code=status, headers={"Cache-Control": "no-store"})
+
+
+def _bytes(body: bytes, content_type: str, cache_control: str = "no-store") -> Response:
+    return Response(body, media_type=content_type, headers={"Cache-Control": cache_control})
+
+
+def _static(filename: str, content_type: str, cache_control: str) -> Response:
+    return _bytes((_STATIC_DIR / filename).read_bytes(), content_type, cache_control)
+
+
+def _saving(label: str, action: Callable[[], Response]) -> Response:
+    """Run a settings/ROI/image save, turning bad input into 400 and write failures into 500."""
+    try:
+        return action()
+    except (AttributeError, KeyError, TypeError, ValueError) as error:
+        return _json(400, {"error": str(error)})
+    except OSError as error:
+        return _json(500, {"error": f"Could not save {label}: {error}"})
+
+
+def create_app(
+    state: AppState,
+    analyzer: FrameAnalyzer | None = None,
+    settings_service: SettingsService | None = None,
+) -> FastAPI:
+    """Build the web app for an AppState, with default services if none given."""
+    analyzer = analyzer or FrameAnalyzer(state)
+    settings_service = settings_service or SettingsService(state)
+    roi_service = RoiService(state, analyzer)
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+    @app.exception_handler(_BadRequest)
+    def bad_request(request: Request, error: _BadRequest) -> JSONResponse:
+        return _json(400, {"error": str(error)})
 
     # -- GET --------------------------------------------------------------
 
-    def _get_favicon(self) -> None:
-        self.send_response(204)
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
+    @app.get("/")
+    def page() -> Response:
+        return _bytes(_page(state.settings.refresh_seconds), "text/html; charset=utf-8")
 
-    def _get_page(self) -> None:
-        self._send_bytes(
-            _page(self.state.settings.refresh_seconds), "text/html; charset=utf-8"
+    @app.get("/favicon.ico")
+    def favicon() -> Response:
+        return Response(status_code=204, headers={"Cache-Control": "no-store"})
+
+    for path, filename in _STATIC_IMAGES.items():
+        app.add_api_route(
+            path,
+            lambda filename=filename: _static(filename, "image/png", "public, max-age=86400"),
+            methods=["GET"],
+        )
+    for path, (filename, content_type) in _STATIC_TEXT.items():
+        app.add_api_route(
+            path,
+            lambda filename=filename, content_type=content_type: _static(
+                filename, content_type, "no-cache"
+            ),
+            methods=["GET"],
         )
 
-    def _get_reading(self) -> None:
-        state, settings = self.state, self.state.settings
+    @app.get("/reading.json")
+    def reading() -> Response:
+        settings = state.settings
         cached = state.get_cached_reading()
         if cached is not None:
             # Re-evaluate the delay tracker and webhook on each poll
             # so the issue timer advances and alerts fire on schedule.
-            self._send_json(200, self.analyzer.refresh_cached(cached))
-            return
+            return _json(200, analyzer.refresh_cached(cached))
         # A grab or analysis is already under way and will fill the
         # cache; decoding the old frame here would send a duplicate
         # request to the LLM.
         if state.activity.snapshot()["phase"] != IDLE:
-            self._send_json(200, {"busy": True})
-            return
+            return _json(200, {"busy": True})
         # No cache yet — decode once on first request.
         image = load_frame(settings.image_path)
         if image is None:
             camera = camera_status(settings.image_path)
-            delay = self.analyzer.fail("stale", str(camera.get("error") or "Camera frame unavailable"))
-            self._send_json(
+            delay = analyzer.fail("stale", str(camera.get("error") or "Camera frame unavailable"))
+            return _json(
                 503,
                 {
                     "error": camera.get("error") or "Latest image is not available",
@@ -162,56 +171,56 @@ class _Handler(BaseHTTPRequestHandler):
                     "delay": asdict(delay),
                 },
             )
-            return
         try:
             with state.decode_lock:
                 # Concurrent requests share one decode.
-                reading = state.get_cached_reading() or self.analyzer.analyze_on_request(image)
+                result = state.get_cached_reading() or analyzer.analyze_on_request(image)
         except (ValueError, RuntimeError) as error:
-            self._send_json(500, {"error": str(error)})
-            return
-        self._send_json(200, reading)
+            return _json(500, {"error": str(error)})
+        return _json(200, result)
 
-    def _get_settings(self) -> None:
-        self._send_json(200, self.state.snapshot_settings())
+    @app.get("/settings.json")
+    def settings_json() -> Response:
+        return _json(200, state.snapshot_settings())
 
-    def _get_admin_settings(self) -> None:
-        settings = self.state.snapshot_settings()
-        self._send_json(200, {k: settings[k] for k in SETTINGS_KEYS if k in settings})
+    @app.get("/admin-settings")
+    def admin_settings() -> Response:
+        settings = state.snapshot_settings()
+        return _json(200, {k: settings[k] for k in SETTINGS_KEYS if k in settings})
 
-    def _get_activity(self) -> None:
-        self._send_json(200, self.state.activity.snapshot())
+    @app.get("/activity.json")
+    def activity() -> Response:
+        return _json(200, state.activity.snapshot())
 
-    def _get_camera_status(self) -> None:
-        self._send_json(200, camera_status(self.state.settings.image_path))
+    @app.get("/camera-status.json")
+    def camera_status_json() -> Response:
+        return _json(200, camera_status(state.settings.image_path))
 
-    def _get_llm_image(self) -> None:
-        body = self.state.llm_image
+    @app.get("/llm-image.jpg")
+    def llm_image() -> Response:
+        body = state.llm_image
         if body is None:
-            self.send_error(404, "No LLM image yet")
-            return
-        self._send_bytes(body, "image/jpeg")
+            return Response("No LLM image yet", status_code=404)
+        return _bytes(body, "image/jpeg")
 
-    def _get_last_image(self) -> None:
-        image = load_frame(self.state.settings.image_path)
+    @app.get("/last.jpg")
+    def last_image() -> Response:
+        image = load_frame(state.settings.image_path)
         if image is None:
-            self.send_error(503, "Camera has not supplied a frame")
-            return
+            return Response("Camera has not supplied a frame", status_code=503)
         try:
             # The ROI box is drawn by the page, so serve the frame unannotated.
             body = encode_jpeg(to_bgr(image))
         except ValueError as error:
-            self.send_error(500, str(error))
-            return
-        self._send_bytes(body, "image/jpeg")
+            return Response(str(error), status_code=500)
+        return _bytes(body, "image/jpeg")
 
     # -- POST -------------------------------------------------------------
 
-    def _post_capture(self) -> None:
-        state = self.state
+    @app.post("/capture")
+    def capture() -> Response:
         if state.camera_poller is None:
-            self._send_json(503, {"error": "RTSP_URL is not configured"})
-            return
+            return _json(503, {"error": "RTSP_URL is not configured"})
         # Mark the grab as started before clearing the cache so a
         # concurrent refresh doesn't decode the old frame.
         state.activity.set(GRABBING)
@@ -219,16 +228,16 @@ class _Handler(BaseHTTPRequestHandler):
         state.set_cached_reading(None)
         captured = state.camera_poller.capture_once()
         camera = camera_status(state.settings.image_path)
-        self._send_json(
+        return _json(
             200 if captured else 502,
             {"captured": captured, "camera": camera, "error": camera.get("error")},
         )
 
-    def _post_test_webhook(self) -> None:
-        notifier = self.state.notifier
+    @app.post("/test-webhook")
+    def test_webhook() -> Response:
+        notifier = state.notifier
         if notifier is None:
-            self._send_json(503, {"error": "HA_WEBHOOK_URL is not configured"})
-            return
+            return _json(503, {"error": "HA_WEBHOOK_URL is not configured"})
         delivered = notifier.send(
             {
                 "status": "invalid",
@@ -241,88 +250,41 @@ class _Handler(BaseHTTPRequestHandler):
                 "simulated": True,
             }
         )
-        self._send_json(
+        return _json(
             200 if delivered else 502,
             {"delivered": delivered, "error": None if delivered else "Webhook delivery failed"},
         )
 
-    def _post_save_mismatch(self) -> None:
-        payload = self._read_json(512, "Request body")
-        filename = save_mismatch(
-            self.state.settings, self.state.get_cached_reading(), payload
-        )
-        if filename is None:
-            self._send_json(503, {"error": "No current image to save"})
-            return
-        self._send_json(200, {"saved": filename})
+    @app.post("/save-mismatch")
+    def save_mismatch_route(payload: dict = Depends(_json_body(512, "Request body"))) -> Response:
+        def save() -> Response:
+            filename = save_mismatch(state.settings, state.get_cached_reading(), payload)
+            if filename is None:
+                return _json(503, {"error": "No current image to save"})
+            return _json(200, {"saved": filename})
 
-    def _post_settings(self) -> None:
-        payload = self._read_json(1024, "Settings request body")
-        self._send_json(200, self.settings_service.update_reader(payload))
+        return _saving("image", save)
 
-    def _post_admin_settings(self) -> None:
-        payload = self._read_json(4096, "Admin settings body")
-        self.settings_service.update_admin(payload)
-        self._send_json(200, {"ok": True})
+    @app.post("/settings")
+    def settings_route(payload: dict = Depends(_json_body(1024, "Settings request body"))) -> Response:
+        return _saving("settings", lambda: _json(200, settings_service.update_reader(payload)))
 
-    def _post_roi(self) -> None:
-        payload = self._read_json(1024, "ROI request body")
-        result = self.roi_service.set_roi(payload)
-        if result is None:
-            self._send_json(503, {"error": "Latest image is not available"})
-            return
-        self._send_json(200, result)
+    @app.post("/admin-settings")
+    def admin_settings_route(payload: dict = Depends(_json_body(4096, "Admin settings body"))) -> Response:
+        def save() -> Response:
+            settings_service.update_admin(payload)
+            return _json(200, {"ok": True})
 
-    # -- helpers ----------------------------------------------------------
+        return _saving("admin settings", save)
 
-    def _read_json(self, max_bytes: int, name: str) -> dict[str, object]:
-        content_length = int(self.headers.get("Content-Length", "0"))
-        if not 0 < content_length <= max_bytes:
-            raise ValueError(f"{name} must be between 1 and {max_bytes} bytes")
-        return json.loads(self.rfile.read(content_length))
+    @app.post("/roi")
+    def roi_route(payload: dict = Depends(_json_body(1024, "ROI request body"))) -> Response:
+        def save() -> Response:
+            result = roi_service.set_roi(payload)
+            if result is None:
+                return _json(503, {"error": "Latest image is not available"})
+            return _json(200, result)
 
-    def _send_static(self, filename: str, content_type: str, cache_control: str) -> None:
-        self._send_bytes((_STATIC_DIR / filename).read_bytes(), content_type, cache_control)
+        return _saving("ROI", save)
 
-    def _send_bytes(
-        self,
-        body: bytes,
-        content_type: str,
-        cache_control: str = "no-store",
-        status: int = 200,
-    ) -> None:
-        self.send_response(status)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", cache_control)
-        self.end_headers()
-        self.wfile.write(body)
-
-    def _send_json(self, status: int, payload: dict[str, object]) -> None:
-        self._send_bytes(
-            json.dumps(payload).encode("utf-8"),
-            "application/json; charset=utf-8",
-            status=status,
-        )
-
-    def log_message(self, format: str, *args: object) -> None:
-        pass
-
-
-def make_handler(
-    state: AppState,
-    analyzer: FrameAnalyzer | None = None,
-    settings_service: SettingsService | None = None,
-) -> Type[BaseHTTPRequestHandler]:
-    """Build the request handler for an AppState, with default services if none given."""
-    analyzer = analyzer or FrameAnalyzer(state)
-    return type(
-        "ImageHandler",
-        (_Handler,),
-        {
-            "state": state,
-            "analyzer": analyzer,
-            "settings_service": settings_service or SettingsService(state),
-            "roi_service": RoiService(state, analyzer),
-        },
-    )
+    return app
