@@ -10,8 +10,6 @@ main{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;b
 #resize-handle{position:absolute;right:-7px;bottom:-7px;width:14px;height:14px;padding:0;border:2px solid #101514;background:#ff7a35;cursor:nwse-resize;touch-action:none}
 #roi-box.ok{border-color:#2ecc71}#roi-box.ok #resize-handle{background:#2ecc71}
 #roi-box.bad{border-color:#ff3b3b}#roi-box.bad #resize-handle{background:#ff3b3b}
-#roi-box.analyzing{animation:roi-flash .6s steps(1) infinite}
-@keyframes roi-flash{0%{border-color:#ff9a1f;box-shadow:0 0 8px #ff9a1f}50%{border-color:transparent;box-shadow:none}}
 #grab-dot{position:absolute;left:10px;bottom:10px;width:14px;height:14px;background:#ff2d2d;pointer-events:none;visibility:hidden}
 #grab-dot.on{visibility:visible;animation:grab-flash .5s steps(1) infinite}
 @keyframes grab-flash{0%{opacity:1}50%{opacity:0}}
@@ -29,6 +27,8 @@ h1#admin-btn{cursor:pointer}
 #status.invalid{border-color:#b77568;color:#f0b2a4}
 @keyframes llm-flash{0%,100%{border-color:#35433a;box-shadow:0 0 0 rgba(144,238,144,0)}50%{border-color:#90ee90;box-shadow:0 0 10px rgba(144,238,144,.6)}}
 #llm-image.flash{animation:llm-flash .8s ease-in-out 2}
+@keyframes llm-wait{0%{border-color:#ff9a1f;box-shadow:0 0 8px #ff9a1f}50%{border-color:#35433a;box-shadow:none}}
+#llm-image.waiting{animation:llm-wait .6s steps(1) infinite}
 #llm-image{cursor:pointer;display:block;max-width:100%;max-height:90px;object-fit:contain;align-self:flex-start;border:1px solid #35433a;background:#000}
 dl{margin:0;display:grid;grid-template-columns:1fr;gap:7px}
 dt{margin-top:9px;color:#829187;font-size:11px;text-transform:uppercase}

@@ -10,21 +10,29 @@ let phase='idle';
 let llmImageVersion=null;
 let flashValuePending=false;
 let llmFlashPending=false;
+let llmAwaiting=false;
 const llmImage=document.getElementById('llm-image');
+// Orange pulse on the LLM image from the end of the green flash until the reading is decided.
+function applyLlmWait(){
+    llmImage.classList.toggle('waiting',phase==='analyzing'&&llmAwaiting&&!llmImage.classList.contains('flash'));
+}
 llmImage.onload=()=>{
     llmImage.hidden=false;
     if(llmFlashPending){
         llmFlashPending=false;
+        llmAwaiting=true;
         llmImage.classList.remove('flash');void llmImage.offsetWidth;llmImage.classList.add('flash');
+        applyLlmWait();
     }
 };
-llmImage.onerror=()=>{llmImage.hidden=true;llmFlashPending=false;};
+llmImage.addEventListener('animationend',()=>{llmImage.classList.remove('flash');applyLlmWait();});
+llmImage.onerror=()=>{llmImage.hidden=true;llmFlashPending=false;llmAwaiting=false;applyLlmWait();};
 let roiResult=null;
 function applyRoiState(){
-    roiBox.classList.toggle('analyzing',phase==='analyzing');
-    roiBox.classList.toggle('ok',phase!=='analyzing'&&roiResult==='ok');
-    roiBox.classList.toggle('bad',phase!=='analyzing'&&roiResult==='bad');
+    roiBox.classList.toggle('ok',roiResult==='ok');
+    roiBox.classList.toggle('bad',roiResult==='bad');
     document.getElementById('grab-dot').classList.toggle('on',phase==='grabbing');
+    applyLlmWait();
 }
 async function pollActivity(){
     try{
@@ -32,6 +40,7 @@ async function pollActivity(){
         const activity=await response.json();
         const previous=phase;
         phase=activity.phase;
+        if(phase!=='analyzing'||previous!=='analyzing')llmAwaiting=false;
         if(phase==='analyzing'&&previous!=='analyzing'&&!drag&&!saving)frame.src='/last.jpg?t='+Date.now();
         if(phase==='analyzing'&&activity.roi&&!drag&&!saving){
             currentRoi=activity.roi;imageSize=activity.image_size;drawRoi();
